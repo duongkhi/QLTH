@@ -1,0 +1,14 @@
+{
+    "DinhTuan": {
+        "display_name": "Đinh Thái Tuấn",
+        "aliases": ["Thái Tuấn", "Tuấn đen", "Đinh Tuấn"]
+    },
+    "VuDuong": {
+        "display_name": "Vũ Dương",
+        "aliases": ["Dương Vũ", "Dương khỉ"]
+    },
+    "BuiNhung": {
+        "display_name": "Bùi Thị Nhung",
+        "aliases": ["Nhung Bùi", "Nhung Bánh Bèo", "Nhung Bánh Cuốn"]
+    }
+}

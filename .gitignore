@@ -1,0 +1,21 @@
+# Môi trường ảo
+venv/
+.venv/
+env/
+ENV/
+
+# File secrets
+.streamlit/secrets.toml
+
+# Thư mục dữ liệu
+database/
+
+# Python rác
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+dist/
+*.egg-info/
