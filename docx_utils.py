@@ -7,16 +7,48 @@ import mammoth
 
 from config import MAX_CHARS
 
+# =====================================================================
+# BẢNG MÃ SỬA LỖI FONT TCVN3 (Mojibake)
+# =====================================================================
+TCVN3_MAP = {
+    "H·": "Họ", "h·": "họ", "vµ": "và", "tªn": "tên", "Sè": "Số", "chong": "chứng", 
+    "minh": "minh", "Tªn": "Tên", "trêng": "trường", "Mèi": "Mối", "quan": "quan", 
+    "hÖ": "hệ", "Hä": "Họ", "®": "đ", "tõ": "từ", "®Õn": "đến", "b³ng": "bằng", 
+    "cÊp": "cấp", "ngµy": "ngày", "th,ng": "tháng", "n¨m": "năm", "nam": "nam", 
+    "n÷": "nữ", "tr×nh": "trình", "®é": "độ", "chuyªn": "chuyên", "m«n": "môn",
+    "®-n": "đơn", "vÞ": "vị", "c«ng": "công", "t¸c": "tác", "®¶ng": "đảng",
+    "®oµn": "đoàn", "thÓ": "thể", "trêng": "trường", "tØnh": "tỉnh", "phè": "phố",
+    "quËn": "quận", "huyÖn": "huyện", "x·": "xã", "th«n": "thôn", "ng¸ch": "ngách",
+    "nghiÖp": "nghiệp", "chÝnh": "chính", "trÞ": "trị", "ngo¹i": "ngoại", "ng÷": "ngữ",
+    "tin": "tin", "häc": "học", "Tªn": "Tên", "®µo": "đào", "t¹o": "tạo", "båi": "bồi",
+    "dìng": "dưỡng", "H×nh": "Hình", "thøc": "thức", "V¨n": "Văn", "chøng": "chứng",
+    "chØ": "chỉ", "Kü": "Kỹ", "s-": "sư", "Cö": "Cử", "nh©n": "nhân", "Th.s": "Th.s",
+    "TS": "TS", "TSKH": "TSKH", "Gi¸o": "Giáo", "s-": "sư", "Phã": "Phó"
+}
+
+def fix_tcvn3_text(text: str) -> str:
+    """Sửa lỗi font TCVN3 cơ bản sang Unicode."""
+    if not text:
+        return text
+    for k, v in TCVN3_MAP.items():
+        text = text.replace(k, v)
+    return text
+
 
 # ---------- Extract ----------
 def extract_text_from_docx(uf):
     doc = Document(uf)
-    parts = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    parts = []
+    for p in doc.paragraphs:
+        if p.text.strip():
+            parts.append(fix_tcvn3_text(p.text.strip()))
+            
     for t in doc.tables:
         for r in t.rows:
-            cells = [c.text.strip() for c in r.cells if c.text.strip()]
+            cells = [fix_tcvn3_text(c.text.strip()) for c in r.cells if c.text.strip()]
             if cells:
                 parts.append(" | ".join(cells))
+                
     return "\n".join(parts)
 
 
@@ -60,7 +92,7 @@ def extract_document_title(docx_bytes):
         return None
     from security import _strip_diacritics
     for p in doc.paragraphs[:20]:
-        txt = p.text.strip()
+        txt = fix_tcvn3_text(p.text.strip())
         if not txt:
             continue
         low = _strip_diacritics(txt).lower()
@@ -68,7 +100,7 @@ def extract_document_title(docx_bytes):
             if kw in low:
                 return txt[:120]
     for p in doc.paragraphs[:15]:
-        txt = p.text.strip()
+        txt = fix_tcvn3_text(p.text.strip())
         if not txt or len(txt) > 120:
             continue
         if p.runs and any(r.bold for r in p.runs if r.text and r.bold):
@@ -80,13 +112,13 @@ def extract_document_title(docx_bytes):
             pass
     for p in doc.paragraphs:
         if p.text.strip():
-            return p.text.strip()[:120]
+            return fix_tcvn3_text(p.text.strip())[:120]
     return None
 
 
 # ---------- Strip personal content (template cleaning) ----------
 def _strip_paragraph(p, field):
-    txt = p.text
+    txt = fix_tcvn3_text(p.text)
     pat1 = re.compile(rf"^(\s*{re.escape(field)}\s*[:：]\s*)(.*)$")
     m = pat1.match(txt)
     if m:

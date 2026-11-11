@@ -77,10 +77,57 @@ def suggest_profile_key(name):
 
 
 def merge_and_save(key, new_data, overwrite=False):
-    final = dict(new_data) if overwrite else {**load_user_profile(key), **new_data}
+    """
+    Gộp dữ liệu mới vào hồ sơ hiện tại.
+    - overwrite=True: Ghi đè toàn bộ (dùng cho nút "Ghi đè").
+    - overwrite=False: 
+      + List: Nối thêm phần tử mới (không trùng lặp).
+      + Đơn trị: Ghi đè nếu có giá trị mới.
+      + Rỗng (None, "", []): Bỏ qua, giữ nguyên giá trị cũ.
+    """
+    old_data = load_user_profile(key)
+
+    # Nếu ghi đè toàn bộ hoặc chưa có dữ liệu cũ
+    if overwrite or not old_data:
+        final = {k: v for k, v in new_data.items() if v not in (None, "", [], {})}
+        save_user_profile(key, final)
+        update_name_mapping_from_profile(key, final)
+        return final, {"added": final, "updated": {}, "appended": {}}
+
+    final = dict(old_data)
+    changes = {"added": {}, "updated": {}, "appended": {}}
+
+    for k, v in new_data.items():
+        # 1. Bỏ qua nếu giá trị mới rỗng
+        if v is None or v == "" or v == [] or v == {}:
+            continue
+
+        # 2. Nếu là List -> Nối thêm
+        if isinstance(v, list):
+            if k in final and isinstance(final[k], list):
+                # Lọc các phần tử mới chưa có trong mảng cũ
+                new_items = [item for item in v if item not in final[k]]
+                if new_items:
+                    final[k] = final[k] + new_items
+                    changes["appended"][k] = new_items
+            else:
+                # Chưa có hoặc kiểu dữ liệu cũ không phải list -> Ghi đè bằng list mới
+                final[k] = v
+                changes["added"][k] = v
+        
+        # 3. Nếu là đơn trị (String, Int, Dict...) -> Ghi đè
+        else:
+            if k not in final:
+                final[k] = v
+                changes["added"][k] = v
+            elif final[k] != v:
+                final[k] = v
+                changes["updated"][k] = v
+
     save_user_profile(key, final)
     update_name_mapping_from_profile(key, final)
-    return final
+    
+    return final, changes
 
 
 def find_identity_matches(new_data, allowed):

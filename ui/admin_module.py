@@ -2,6 +2,7 @@ import io
 import json
 import re
 import time
+import hashlib
 
 import streamlit as st
 from docx import Document
@@ -19,7 +20,7 @@ from profile_service import (
 from docx_utils import (
     cached_extract_docx, smart_truncate, render_docx_preview,
     extract_document_title, strip_personal_content,
-    truncate_profile_for_prompt,
+    truncate_profile_for_prompt, fix_tcvn3_text,  # Đã thêm fix_tcvn3_text
 )
 from ai_client import call_model_json, get_client
 from form_templates import (
@@ -52,6 +53,32 @@ def _reset_upload_state():
     for k in ("upload_stage", "upload_extracted",
               "upload_detected_name", "upload_detected_dob"):
         st.session_state[k] = None
+    # Xóa báo cáo gộp (nếu có)
+    st.session_state.pop("_merge_report", None)
+
+
+def _render_merge_report(changes):
+    """Hiển thị báo cáo tóm tắt các thay đổi sau khi gộp."""
+    n_added = len(changes.get("added", {}))
+    n_updated = len(changes.get("updated", {}))
+    n_appended = len(changes.get("appended", {}))
+
+    if n_added == 0 and n_updated == 0 and n_appended == 0:
+        st.info("ℹ️ Không có trường nào thay đổi (dữ liệu đã tồn tại hoặc file mới rỗng).")
+        return
+
+    st.success(f"✅ Gộp thành công! (Thêm mới: {n_added} | Ghi đè: {n_updated} | Nối tiếp: {n_appended})")
+    
+    with st.expander("👁️ Xem chi tiết các thay đổi", expanded=True):
+        if n_added > 0:
+            st.markdown("**➕ Trường mới thêm:**")
+            st.json(changes["added"])
+        if n_updated > 0:
+            st.markdown("**♻️ Trường bị ghi đè:**")
+            st.json(changes["updated"])
+        if n_appended > 0:
+            st.markdown("**🔗 Trường được nối thêm (List):**")
+            st.json(changes["appended"])
 
 
 # =====================================================================
@@ -72,7 +99,7 @@ def render_admin_module(ctx: UserContext):
 
 
 # =====================================================================
-# SECTION 1: Upload profile (giữ nguyên, không đổi)
+# SECTION 1: Upload profile (Auto-trigger & Cancel)
 # =====================================================================
 def _render_upload_section(ctx: UserContext):
     st.markdown("---")
@@ -88,8 +115,12 @@ def _render_upload_section(ctx: UserContext):
         st.caption(f"Upload file hồ sơ của bạn "
                    f"(hồ sơ **{ctx.own_profile}**).")
 
-    if st.session_state.get("upload_stage") is None:
+    stage = st.session_state.get("upload_stage")
+    
+    if stage is None:
         _render_upload_first_step(ctx)
+    elif stage == "processing":
+        _render_upload_processing(ctx)
     else:
         _render_upload_review(ctx)
 
@@ -97,48 +128,76 @@ def _render_upload_section(ctx: UserContext):
 def _render_upload_first_step(ctx: UserContext):
     upf = st.file_uploader("File hồ sơ thô (.docx)", type=["docx"],
                            key="uploader_profile")
-    if not upf:
-        return
-    if not st.button("🔍 Phân tích file", use_container_width=True,
-                     key="btn_analyze"):
-        return
+    if upf:
+        st.session_state["_upload_profile_bytes"] = upf.getvalue()
+        st.session_state.upload_stage = "processing"
+        st.rerun()
+
+
+def _render_upload_processing(ctx: UserContext):
+    col1, col2 = st.columns([4, 1])
+    with col2:
+        if st.button("❌ Hủy", use_container_width=True, key="btn_cancel_upload"):
+            _reset_upload_state()
+            st.session_state.pop("_upload_profile_bytes", None)
+            st.rerun()
 
     progress = st.progress(5, text="📄 Đang đọc file...")
     try:
-        raw = cached_extract_docx(upf.getvalue())
+        raw_bytes = st.session_state.get("_upload_profile_bytes")
+        if not raw_bytes:
+            _reset_upload_state()
+            st.rerun()
+
+        raw = cached_extract_docx(raw_bytes)
         raw = smart_truncate(raw)
         progress.progress(15, text=f"📤 Đọc {len(raw):,} ký tự, gửi AI...")
+        
         prompt = f"""Bạn là AI Agent quản lý hồ sơ nhân sự.
-Trích xuất TOÀN BỘ thông tin từ văn bản thô sau thành JSON phẳng.
-Văn bản:
-\"\"\"
-{raw}
-\"\"\"
-Yêu cầu:
-- Trả về MỘT đối tượng JSON (key-value).
-- Key tiếng Anh, viết thường, gạch dưới.
-- BẮT BUỘC có 'ho_va_ten' nếu tìm được.
-- BẮT BUỘC có 'ngay_sinh' (DD/MM/YYYY) nếu tìm được.
-"""
-        jt = call_model_json(prompt, progress, 20, 95,
-                             label="🤖 Đang trích xuất")
+                Trích xuất TOÀN BỘ thông tin từ văn bản thô sau thành JSON phẳng.
+                Văn bản:
+                \"\"\"
+                {raw}
+                \"\"\"
+                Yêu cầu:
+                - Trả về MỘT đối tượng JSON (key-value).
+                - Key tiếng Anh, viết thường, gạch dưới.
+                - BẮT BUỘC có 'ho_va_ten' nếu tìm được.
+                - BẮT BUỘC có 'ngay_sinh' (DD/MM/YYYY) nếu tìm được.
+                """
+        jt = call_model_json(prompt, progress, 20, 95, label="🤖 Đang trích xuất")
         extracted = json.loads(jt)
+        
         progress.progress(100, text="✅ Xong")
         st.session_state.upload_extracted = extracted
         st.session_state.upload_detected_name = detect_name_from_data(extracted)
         st.session_state.upload_detected_dob = detect_dob_from_data(extracted)
         st.session_state.upload_stage = "review"
+        st.session_state.pop("_upload_profile_bytes", None)
         time.sleep(0.3)
         st.rerun()
+        
     except Exception as e:
         progress.empty()
-        st.error(f"Lỗi: {e}")
+        st.error(f"Lỗi phân tích file: {e}")
+        if st.button("Quay lại", key="btn_err_upload"):
+            _reset_upload_state()
+            st.session_state.pop("_upload_profile_bytes", None)
+            st.rerun()
 
 
 def _render_upload_review(ctx: UserContext):
     extracted = st.session_state.upload_extracted
     det_name = st.session_state.upload_detected_name
     det_dob = st.session_state.upload_detected_dob
+
+    # Nếu có báo cáo gộp -> Hiển thị và đợi xác nhận
+    if st.session_state.get("_merge_report"):
+        _render_merge_report(st.session_state["_merge_report"])
+        if st.button("✅ Hoàn tất, nạp file khác", type="primary", use_container_width=True):
+            _reset_upload_state()
+            st.rerun()
+        return
 
     st.success(f"✅ Đã trích xuất **{len(extracted)} trường**.")
     c1, c2 = st.columns(2)
@@ -155,8 +214,7 @@ def _render_upload_review(ctx: UserContext):
         _render_upload_review_user(ctx, extracted, det_name, det_dob)
 
     st.markdown("---")
-    if st.button("❌ Hủy, upload lại", use_container_width=True,
-                 key="u_cancel"):
+    if st.button("❌ Hủy, upload lại", use_container_width=True, key="u_cancel"):
         _reset_upload_state()
         st.rerun()
 
@@ -182,20 +240,16 @@ def _render_upload_review_admin(ctx, extracted, det_name):
                 with cc1:
                     if st.button("🔄 Gộp thêm", key=f"mg_{mk}",
                                  use_container_width=True, type="primary"):
-                        merged = merge_and_save(mk, extracted)
-                        write_system_log(ctx.username, f"Gộp vào {mk}",
-                                         f"OK ({len(merged)})")
-                        st.success(f"✅ Đã gộp vào `{mk}`.")
-                        _reset_upload_state()
-                        time.sleep(0.5)
+                        merged, changes = merge_and_save(mk, extracted)
+                        write_system_log(ctx.username, f"Gộp vào {mk}", f"OK")
+                        st.session_state["_merge_report"] = changes
                         st.rerun()
                 with cc2:
                     if st.button("♻️ Ghi đè", key=f"ow_{mk}",
                                  use_container_width=True):
-                        merged = merge_and_save(mk, extracted, overwrite=True)
-                        write_system_log(ctx.username, f"Ghi đè {mk}",
-                                         f"OK ({len(merged)})")
-                        st.success(f"✅ Đã ghi đè `{mk}`.")
+                        merged, _ = merge_and_save(mk, extracted, overwrite=True)
+                        write_system_log(ctx.username, f"Ghi đè {mk}", f"OK")
+                        st.success(f"✅ Đã ghi đè toàn bộ hồ sơ `{mk}`.")
                         _reset_upload_state()
                         time.sleep(0.5)
                         st.rerun()
@@ -214,24 +268,18 @@ def _render_upload_review_admin(ctx, extracted, det_name):
         return
     if load_user_profile(new_key):
         st.warning(f"⚠️ Profile `{new_key}` đã tồn tại. Tiếp tục sẽ GHI ĐÈ.")
-        if st.button(f"⚠️ Ghi đè `{new_key}`", use_container_width=True,
-                     key="btn_new_ow"):
-            merged = merge_and_save(new_key, extracted, overwrite=True)
-            write_system_log(ctx.username, f"Ghi đè {new_key}",
-                             f"OK ({len(merged)})")
-            st.success(f"✅ Đã ghi đè `{new_key}`.")
+        if st.button(f"⚠️ Ghi đè `{new_key}`", use_container_width=True, key="btn_new_ow"):
+            merged, _ = merge_and_save(new_key, extracted, overwrite=True)
+            write_system_log(ctx.username, f"Ghi đè {new_key}", f"OK")
+            st.success(f"✅ Đã tạo mới/ghi đè `{new_key}`.")
             _reset_upload_state()
             time.sleep(0.5)
             st.rerun()
     else:
-        if st.button("🆕 Tạo hồ sơ mới", type="primary",
-                     use_container_width=True, key="btn_new_mk"):
-            merged = merge_and_save(new_key, extracted)
-            write_system_log(ctx.username, f"Tạo mới {new_key}",
-                             f"OK ({len(merged)})")
-            st.success(f"✅ Đã tạo `{new_key}`.")
-            _reset_upload_state()
-            time.sleep(0.5)
+        if st.button("🆕 Tạo hồ sơ mới", type="primary", use_container_width=True, key="btn_new_mk"):
+            merged, changes = merge_and_save(new_key, extracted)
+            write_system_log(ctx.username, f"Tạo mới {new_key}", f"OK")
+            st.session_state["_merge_report"] = changes
             st.rerun()
 
 
@@ -240,15 +288,10 @@ def _render_upload_review_user(ctx, extracted, det_name, det_dob):
     if not existing:
         st.info(f"📁 Hồ sơ **{ctx.own_profile}** chưa có dữ liệu. "
                 f"Đây sẽ là lần nạp đầu tiên.")
-        if st.button("💾 Lưu vào hồ sơ của tôi", type="primary",
-                     use_container_width=True, key="u_first"):
-            merged = merge_and_save(ctx.own_profile, extracted)
-            write_system_log(ctx.username,
-                             f"Nạp lần đầu vào {ctx.own_profile}",
-                             f"OK ({len(merged)})")
-            st.success(f"✅ Đã nạp {len(merged)} trường.")
-            _reset_upload_state()
-            time.sleep(0.5)
+        if st.button("💾 Lưu vào hồ sơ của tôi", type="primary", use_container_width=True, key="u_first"):
+            merged, changes = merge_and_save(ctx.own_profile, extracted)
+            write_system_log(ctx.username, f"Nạp lần đầu vào {ctx.own_profile}", f"OK")
+            st.session_state["_merge_report"] = changes
             st.rerun()
         return
 
@@ -277,23 +320,16 @@ def _render_upload_review_user(ctx, extracted, det_name, det_dob):
 
     cc1, cc2 = st.columns(2)
     with cc1:
-        if st.button("🔄 Gộp thêm", key="u_merge",
-                     use_container_width=True, type="primary"):
-            merged = merge_and_save(ctx.own_profile, extracted)
-            write_system_log(ctx.username,
-                             f"Gộp vào {ctx.own_profile}",
-                             f"OK ({len(merged)})")
-            st.success("✅ Đã gộp.")
-            _reset_upload_state()
-            time.sleep(0.5)
+        if st.button("🔄 Gộp thêm", key="u_merge", use_container_width=True, type="primary"):
+            merged, changes = merge_and_save(ctx.own_profile, extracted)
+            write_system_log(ctx.username, f"Gộp vào {ctx.own_profile}", f"OK")
+            st.session_state["_merge_report"] = changes
             st.rerun()
     with cc2:
         if st.button("♻️ Ghi đè", key="u_ow", use_container_width=True):
-            merged = merge_and_save(ctx.own_profile, extracted, overwrite=True)
-            write_system_log(ctx.username,
-                             f"Ghi đè {ctx.own_profile}",
-                             f"OK ({len(merged)})")
-            st.success("✅ Đã ghi đè.")
+            merged, _ = merge_and_save(ctx.own_profile, extracted, overwrite=True)
+            write_system_log(ctx.username, f"Ghi đè {ctx.own_profile}", f"OK")
+            st.success("✅ Đã ghi đè toàn bộ hồ sơ.")
             _reset_upload_state()
             time.sleep(0.5)
             st.rerun()
@@ -306,7 +342,7 @@ def _render_form_section(ctx):
     st.markdown("---")
     st.subheader("📝 2. Điền biểu mẫu")
 
-    templates_meta = list_form_templates()  # list[dict], KHÔNG có docx_bytes
+    templates_meta = list_form_templates()
 
     mode = st.radio(
         "Nguồn:", ["📚 Thư viện", "📤 Upload file mới"],
@@ -320,7 +356,6 @@ def _render_form_section(ctx):
     else:
         tid, fields, title = _render_form_upload(ctx, templates_meta)
 
-    # Xử lý "use library template" được set từ _render_form_upload
     if st.session_state.get("_use_lib_tid"):
         use_tid = st.session_state.pop("_use_lib_tid")
         meta = get_form_template(use_tid)
@@ -338,14 +373,11 @@ def _render_form_section(ctx):
         st.caption("⬆️ Chọn hoặc lưu biểu mẫu để bật nút điền.")
         return
 
-    if st.button("✍️ Điền biểu mẫu", use_container_width=True,
-                 type="primary", key="btn_fill"):
-        _fill_form(ctx, tid, fields or [], title or tid,
-                   sel_target, form_prompt)
+    if st.button("✍️ Điền biểu mẫu", use_container_width=True, type="primary", key="btn_fill"):
+        _fill_form(ctx, tid, fields or [], title or tid, sel_target, form_prompt)
 
 
 def _render_form_library(ctx, templates_meta):
-    """Trả về (tid, fields, title) hoặc (None, None, None)."""
     if not templates_meta:
         st.info("Chưa có biểu mẫu. Chuyển sang *Upload file mới* để tạo.")
         return None, None, None
@@ -392,8 +424,7 @@ def _render_form_library(ctx, templates_meta):
         _render_admin_template_tools(ctx, meta)
         if st.button("🗑️ Xóa mẫu này", key=f"del_tpl_{sel_tid}"):
             delete_form_template(sel_tid)
-            write_system_log(ctx.username,
-                             f"Xóa form template '{sel_tid}'", "OK")
+            write_system_log(ctx.username, f"Xóa form template '{sel_tid}'", "OK")
             st.success("Đã xóa.")
             st.rerun()
 
@@ -404,8 +435,7 @@ def _render_admin_template_tools(ctx, meta):
     with st.expander("⚙️ Tuỳ chỉnh mẫu (admin)", expanded=False):
         from form_prompts import CATEGORIES, CATEGORY_RULES
         cur_cat = meta.get("category", "other")
-        idx = list(CATEGORIES.keys()).index(cur_cat) \
-            if cur_cat in CATEGORIES else 0
+        idx = list(CATEGORIES.keys()).index(cur_cat) if cur_cat in CATEGORIES else 0
         new_cat = st.selectbox(
             "Category:",
             options=list(CATEGORIES.keys()),
@@ -428,60 +458,113 @@ def _render_admin_template_tools(ctx, meta):
 
 
 def _render_form_upload(ctx, templates):
-    """
-    Trả về (tid, fields, title) HOẶC (None, None, None).
-    ⚠️ Luôn trả tid STRING, KHÔNG trả bytes — bytes được dùng nội bộ
-    lúc lưu mẫu, sau khi lưu sẽ set `_use_lib_tid` để _fill_form dùng.
-    """
     uploaded = st.file_uploader(
         "Upload file .docx (biểu mẫu trống hoặc đã điền)",
         type=["docx"], key="uploader_template",
     )
+    
     if not uploaded:
+        st.session_state.pop("_new_tpl_bytes", None)
+        st.session_state.pop("_new_tpl_fields", None)
+        st.session_state.pop("_new_tpl_title", None)
+        st.session_state.pop("_tpl_ignored_hash", None)
         return None, None, None
 
     new_bytes = uploaded.getvalue()
     new_title = extract_document_title(new_bytes)
-    matched_tid = match_template_by_title(new_title, templates) \
-        if new_title else None
+    matched_tid = match_template_by_title(new_title, templates) if new_title else None
 
     # ---------- Đã có template khớp ----------
     if matched_tid:
         matched_meta = _find_template_meta(templates, matched_tid) or {}
         matched_title = matched_meta.get("title", matched_tid)
 
-        st.success(f"✅ Khớp thư viện: **{matched_title}**")
-        st.caption("Dùng mẫu sẵn có để tiết kiệm token.")
+        st.warning(f"⚠️ Phát hiện biểu mẫu trùng tên trong thư viện: **{matched_title}**")
+        
+        st.markdown("Vui lòng chọn thao tác:")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("📚 Dùng mẫu cũ trong thư viện", type="primary", key="use_matched_tpl", use_container_width=True):
+                st.session_state["_use_lib_tid"] = matched_tid
+                st.rerun()
+                
+        with col2:
+            if st.button("♻️ Ghi đè file mới vào thư viện", key="btn_overwrite_tpl", use_container_width=True):
+                with st.spinner("Đang phân tích và cập nhật mẫu..."):
+                    # 1. Trích xuất fields từ file mới
+                    f1 = extract_fields_heuristic(new_bytes)
+                    if len(f1) >= 3:
+                        new_fields = f1
+                    else:
+                        prog = st.progress(10, text="🤖 AI đang trích xuất trường...")
+                        f2, _ai_title, _ai_cat = extract_fields_with_ai(new_bytes, prog)
+                        prog.progress(100, text="✅ Xong")
+                        new_fields = f2
+                    
+                    # 2. Lọc bỏ dữ liệu cá nhân (nếu file mới là file đã điền)
+                    clean_bytes = strip_personal_content(new_bytes, new_fields)
+                    
+                    # 3. Lưu đè vào Database
+                    save_form_template(
+                        tid=matched_tid, # Giữ nguyên ID cũ
+                        title=matched_title,
+                        fields=new_fields,
+                        docx_bytes=clean_bytes,
+                        created_by=ctx.username,
+                    )
+                    write_system_log(ctx.username, f"Ghi đè form template '{matched_tid}'", "OK")
+                    st.success("✅ Đã cập nhật mẫu mới vào Database!")
+                    time.sleep(1.5)
+                    st.rerun()
 
-        if st.button("📚 Dùng mẫu thư viện", type="primary",
-                     key="use_matched_tpl"):
-            st.session_state["_use_lib_tid"] = matched_tid
-            st.rerun()
-
+        st.markdown("---")
+        use_uploaded = st.checkbox(
+            "Chỉ dùng file vừa upload cho lần điền này (Không lưu vào Database)",
+            key="use_uploaded_bytes",
+        )
+        if use_uploaded:
+            # Trả về raw bytes từ file vừa upload + fields từ metadata cũ
+            return new_bytes, matched_meta.get("fields", []), new_title or matched_title
         return None, None, None
 
     # ---------- Template mới ----------
     st.info(f"🆕 Biểu mẫu mới: **{new_title or '(chưa rõ tiêu đề)'}**")
 
-    if st.button("🔍 Phân tích trường", key="btn_analyze_tpl"):
-        with st.spinner("Đang trích xuất..."):
+    file_hash = hashlib.md5(new_bytes).hexdigest()
+
+    if st.session_state.get("_tpl_ignored_hash") == file_hash:
+        st.warning("⚠️ Đã hủy phân tích file này. Vui lòng chọn file khác.")
+        return None, None, None
+
+    if not st.session_state.get("_new_tpl_fields"):
+        col1, col2 = st.columns([4, 1])
+        with col2:
+            if st.button("❌ Hủy", key="btn_cancel_tpl", use_container_width=True):
+                st.session_state["_tpl_ignored_hash"] = file_hash
+                st.rerun()
+
+        prog = st.progress(10, text="🤖 Đang phân tích biểu mẫu...")
+        try:
             f1 = extract_fields_heuristic(new_bytes)
             if len(f1) >= 3:
                 st.session_state["_new_tpl_fields"] = f1
                 st.session_state["_new_tpl_bytes"] = new_bytes
                 st.session_state["_new_tpl_title"] = new_title
             else:
-                prog = st.progress(10, text="🤖 AI đang trích...")
-                f2, ai_title, _ai_cat = extract_fields_with_ai(
-                    new_bytes, prog)
-                prog.progress(100, text="✅")
+                prog.progress(30, text="🤖 AI đang trích xuất trường...")
+                f2, ai_title, _ai_cat = extract_fields_with_ai(new_bytes, prog)
                 st.session_state["_new_tpl_fields"] = f2
                 st.session_state["_new_tpl_bytes"] = new_bytes
                 st.session_state["_new_tpl_title"] = new_title or ai_title
-        st.rerun()
-
-    if not st.session_state.get("_new_tpl_fields"):
-        return None, None, None
+                
+            prog.progress(100, text="✅ Xong")
+            st.session_state["_tpl_ignored_hash"] = None
+            time.sleep(0.3)
+            st.rerun()
+        except Exception as e:
+            st.error(f"Lỗi phân tích: {e}")
+            return None, None, None
 
     fields = st.session_state["_new_tpl_fields"]
     st.markdown(f"**{len(fields)} trường phát hiện:** {', '.join(fields)}")
@@ -501,16 +584,13 @@ def _render_form_upload(ctx, templates):
 
     cA, cB = st.columns(2)
     with cA:
-        lbl = ("♻️ Lưu đè (đã lọc nội dung)" if existing
-               else "💾 Lưu mẫu (đã lọc)")
-        if st.button(lbl, type="primary", use_container_width=True,
-                     key="btn_save_clean"):
+        lbl = ("♻️ Lưu đè (đã lọc nội dung)" if existing else "💾 Lưu mẫu (đã lọc)")
+        if st.button(lbl, type="primary", use_container_width=True, key="btn_save_clean"):
             if not new_title_input.strip():
                 st.error("Nhập tên biểu mẫu.")
             else:
                 try:
-                    clean = strip_personal_content(
-                        st.session_state["_new_tpl_bytes"], fields)
+                    clean = strip_personal_content(st.session_state["_new_tpl_bytes"], fields)
                     save_form_template(
                         tid=new_tid,
                         title=new_title_input.strip(),
@@ -518,13 +598,9 @@ def _render_form_upload(ctx, templates):
                         docx_bytes=clean,
                         created_by=ctx.username,
                     )
-                    write_system_log(
-                        ctx.username,
-                        f"Lưu form template '{new_tid}' (clean)", "OK")
-                    # ⭐ Auto-select để user điền ngay sau rerun
+                    write_system_log(ctx.username, f"Lưu form template '{new_tid}' (clean)", "OK")
                     st.session_state["_use_lib_tid"] = new_tid
-                    for k in ("_new_tpl_fields", "_new_tpl_bytes",
-                              "_new_tpl_title"):
+                    for k in ("_new_tpl_fields", "_new_tpl_bytes", "_new_tpl_title"):
                         st.session_state[k] = None
                     st.success(f"✅ Đã lưu mẫu **{new_title_input}**.")
                     st.rerun()
@@ -532,8 +608,7 @@ def _render_form_upload(ctx, templates):
                     st.error(f"Lỗi lưu mẫu: {e}")
 
     with cB:
-        if st.button("💾 Lưu nguyên bản", use_container_width=True,
-                     key="btn_save_raw"):
+        if st.button("💾 Lưu nguyên bản", use_container_width=True, key="btn_save_raw"):
             if not new_title_input.strip():
                 st.error("Nhập tên biểu mẫu.")
             else:
@@ -545,19 +620,15 @@ def _render_form_upload(ctx, templates):
                         docx_bytes=st.session_state["_new_tpl_bytes"],
                         created_by=ctx.username,
                     )
-                    write_system_log(
-                        ctx.username,
-                        f"Lưu form template '{new_tid}' (raw)", "OK")
+                    write_system_log(ctx.username, f"Lưu form template '{new_tid}' (raw)", "OK")
                     st.session_state["_use_lib_tid"] = new_tid
-                    for k in ("_new_tpl_fields", "_new_tpl_bytes",
-                              "_new_tpl_title"):
+                    for k in ("_new_tpl_fields", "_new_tpl_bytes", "_new_tpl_title"):
                         st.session_state[k] = None
                     st.success(f"✅ Đã lưu mẫu **{new_title_input}**.")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Lỗi lưu mẫu: {e}")
 
-    # Chưa lưu → không cho điền (tránh dùng bytes)
     st.caption("ℹ️ Lưu mẫu trước để có thể điền.")
     return None, None, None
 
@@ -584,14 +655,7 @@ def _render_target_selector(ctx: UserContext):
     return None, ""
 
 
-# =====================================================================
-# TARGET RESOLUTION — không dùng st.stop(), trả None khi lỗi
-# =====================================================================
 def _resolve_target(ctx: UserContext, sel_target, form_prompt, progress):
-    """
-    Trả về target (str) hoặc None (khi lỗi/không xác định).
-    KHÔNG dùng st.stop() — caller phải check return.
-    """
     if ctx.is_power:
         target = None
         if sel_target and sel_target != "(tự động theo yêu cầu)":
@@ -601,15 +665,12 @@ def _resolve_target(ctx: UserContext, sel_target, form_prompt, progress):
             if found:
                 target = found
             else:
-                resolved, _, _, _ = resolve_profile(
-                    form_prompt, ctx.allowed_profiles)
+                resolved, _, _, _ = resolve_profile(form_prompt, ctx.allowed_profiles)
                 target = resolved
 
         if not target:
             progress.empty()
-            st.error("❌ Không xác định được hồ sơ đích. "
-                     "Chọn dropdown hoặc nhập tên rõ ràng hơn "
-                     "(vd: 'điền thông tin Vũ Dương vào form').")
+            st.error("❌ Không xác định được hồ sơ đích. Chọn dropdown hoặc nhập tên rõ ràng hơn.")
             return None
     else:
         target = ctx.own_profile
@@ -626,20 +687,13 @@ def _resolve_target(ctx: UserContext, sel_target, form_prompt, progress):
     return target
 
 
-# =====================================================================
-# FILL FORM — restructure để tránh st.stop() bị catch
-# =====================================================================
 def _fill_form(ctx, tid, fields, title, sel_target, form_prompt):
-    from form_prompts import build_fill_prompt
-
     progress = st.progress(5, text="📄 Đang chuẩn bị...")
 
-    # --- Bước 1: target (không trong try lớn) ---
     target = _resolve_target(ctx, sel_target, form_prompt, progress)
     if not target:
         return
 
-    # --- Bước 2: load template ---
     try:
         meta = get_form_template(tid)
     except Exception as e:
@@ -658,43 +712,110 @@ def _fill_form(ctx, tid, fields, title, sel_target, form_prompt):
         st.error("Mẫu không có file DOCX (chỉ có markdown).")
         return
 
-    # --- Bước 3: profile ---
     tdata = load_user_profile(target)
     if not tdata:
         progress.empty()
         st.warning(f"⚠️ Hồ sơ **[{target}]** chưa có dữ liệu.")
         return
 
-    # --- Bước 4: AI + ghi DOCX (try riêng) ---
     try:
-        progress.progress(20, text="🧠 AI đang điền...")
+        progress.progress(20, text="🧠 AI đang map dữ liệu...")
         tdata_small = truncate_profile_for_prompt(tdata, MAX_CHARS // 2)
-        prompt = build_fill_prompt(
-            profile_data=json.dumps(tdata_small, ensure_ascii=False),
-            template_markdown=meta["markdown"],
-            category=meta.get("category", "other"),
-            custom_prompt=meta.get("fill_prompt"),
-        )
+        
+        prompt = f"""Bạn là trợ lý hành chính. Hãy trích xuất thông tin từ HỒ SƠ để điền vào BIỂU MẪU.
+        
+DỮ LIỆU HỒ SƠ:
+{json.dumps(tdata_small, ensure_ascii=False)}
 
-        jt = call_model_json(prompt, progress, 25, 80,
-                             label="🤖 Đang điền")
-        result = json.loads(jt)
-        filled_md = result.get("filled_markdown", "")
+DANH SÁCH CÁC TRƯỜNG CẦN ĐIỀN TRONG BIỂU MẪU:
+{json.dumps(fields, ensure_ascii=False)}
 
-        if not filled_md.strip():
-            progress.empty()
-            st.error("AI không trả về markdown.")
-            return
+YÊU CẦU:
+- Trả về DUY NHẤT JSON object dạng: {{ "Tên trường": "Giá trị điền" }}
+- Key phải khớp CHÍNH XÁC từng chữ với danh sách trên.
+- Bỏ qua các trường không có dữ liệu (không bịa).
+- Không giải thích gì thêm.
+"""
+        jt = call_model_json(prompt, progress, 25, 80, label="🤖 Đang map data")
+        filled_json = json.loads(jt)
 
         progress.progress(85, text="✍️ Đang ghi vào DOCX...")
-
         doc = Document(io.BytesIO(docx_bytes))
-        filled_count = _apply_markdown_deltas(
-            doc,
-            original_md=meta["markdown"],
-            filled_md=filled_md,
-            fields=fields,
-        )
+        filled_count = 0
+
+        # Sắp xếp các trường giảm dần theo độ dài để tránh match nhầm
+        sorted_fields = sorted(fields, key=len, reverse=True)
+
+        def _replace_in_paragraph(p, label, value):
+            text = p.text
+            if not text.strip():
+                return False
+            
+            fixed_text = fix_tcvn3_text(text)
+            fixed_label = fix_tcvn3_text(str(label))
+            
+            # Lấy danh sách các trường khác làm ranh giới
+            others = [f for f in sorted_fields if f != label]
+            next_fields_pattern = "|".join([re.escape(fix_tcvn3_text(o)) for o in others])
+            
+            # REGEX QUAN TRỌNG: Lookahead
+            # Dừng lại ngay khi:
+            # 1. Gặp trường khác (VD: " Ngày sinh:")
+            # 2. Gặp đầu mục La Mã / Chữ cái / Số thứ tự (VD: " I. ", " A. ", " 1. ")
+            # 3. Gặp dấu xuống dòng (\n) hoặc kết thúc chuỗi ($)
+            section_headers = r"\s+(?:[A-ZĐ]\.|[IVX]+\.|\d+\.)\s" # Bắt A., I., 1.
+            
+            if next_fields_pattern:
+                lookahead = rf"(?={section_headers}|\s+(?:{next_fields_pattern})\s*[:：]?|\n|$)"
+            else:
+                lookahead = rf"(?={section_headers}|\n|$)"
+
+            # Case 1: Dạng "Label: Value"
+            pattern_colon = re.compile(
+                rf"({re.escape(fixed_label)}\s*[:：]\s*)(.*?){lookahead}",
+                re.IGNORECASE
+            )
+            m = pattern_colon.search(fixed_text)
+            if m:
+                # Giữ nguyên prefix, thay value, giữ nguyên phần đuôi (bao gồm cả "A. NỘI DUNG...")
+                new_text = fixed_text[:m.start(2)] + str(value) + fixed_text[m.end(2):]
+                for run in p.runs: run.text = ""
+                if p.runs: p.runs[0].text = new_text
+                else: p.add_run(new_text)
+                return True
+
+            # Case 2: Dạng "Label ..........."
+            pattern_dots = re.compile(
+                rf"({re.escape(fixed_label)}.*?[\.…]{{2,}}\s*)(.*?){lookahead}",
+                re.IGNORECASE
+            )
+            m = pattern_dots.search(fixed_text)
+            if m:
+                # Với dạng dấu chấm, ta thay toàn bộ cụm "Label ..." thành "Label: Value"
+                prefix = m.group(1)
+                prefix = re.sub(r"[\.…]{2,}.*$", "", prefix).strip()
+                new_text = prefix + ": " + str(value) + fixed_text[m.end(2):]
+                for run in p.runs: run.text = ""
+                if p.runs: p.runs[0].text = new_text
+                else: p.add_run(new_text)
+                return True
+
+            return False
+
+        # Quét toàn bộ đoạn văn
+        for p in doc.paragraphs:
+            for label, value in filled_json.items():
+                if value and _replace_in_paragraph(p, label, value):
+                    filled_count += 1
+
+        # Quét toàn bộ bảng biểu
+        for tbl in doc.tables:
+            for row in tbl.rows:
+                for cell in row.cells:
+                    for p in cell.paragraphs:
+                        for label, value in filled_json.items():
+                            if value and _replace_in_paragraph(p, label, value):
+                                filled_count += 1
 
         bio = io.BytesIO()
         doc.save(bio)
@@ -707,102 +828,18 @@ def _fill_form(ctx, tid, fields, title, sel_target, form_prompt):
             f"OK ({filled_count}/{len(fields)})",
         )
 
-        st.success(f"✅ Đã điền **{filled_count}/{len(fields)}** trường "
-                   f"cho **[{target}]**.")
-
-        tab1, tab2 = st.tabs(["📝 Markdown (AI output)", "📄 DOCX (final)"])
-        with tab1:
-            st.markdown(filled_md)
-        with tab2:
-            render_docx_preview(docx_out, height=600)
-            st.download_button(
-                label=f"📥 Tải DOCX của {target}",
-                data=docx_out,
-                file_name=f"{target}_{tid}.docx",
-                mime="application/vnd.openxmlformats-officedocument"
-                     ".wordprocessingml.document",
-                use_container_width=True, key="btn_dl_filled",
-            )
+        st.success(f"✅ Đã điền **{filled_count}/{len(fields)}** trường cho **[{target}]**.")
+        
+        render_docx_preview(docx_out, height=600)
         st.download_button(
-            label="📥 Tải Markdown (nhẹ)",
-            data=filled_md.encode("utf-8"),
-            file_name=f"{target}_{tid}.md",
-            mime="text/markdown",
-            use_container_width=True, key="btn_dl_md",
+            label=f"📥 Tải DOCX của {target}",
+            data=docx_out,
+            file_name=f"{target}_{tid}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            use_container_width=True, key="btn_dl_filled",
         )
 
     except Exception as e:
         progress.empty()
-        write_system_log(ctx.username,
-                         f"Điền form cho {title}", f"Lỗi ({e})")
+        write_system_log(ctx.username, f"Điền form cho {title}", f"Lỗi ({e})")
         st.error(f"Lỗi: {e}")
-
-
-# =====================================================================
-# HELPERS
-# =====================================================================
-def _apply_markdown_deltas(doc, original_md, filled_md, fields):
-    orig_lines = original_md.splitlines()
-    filled_lines = filled_md.splitlines()
-    deltas = {}
-    for o, f in zip(orig_lines, filled_lines):
-        if o == f:
-            continue
-        for fld in fields:
-            pat = re.compile(
-                rf"^(\s*(?:[-*]\s*)?{re.escape(fld)}\s*[:：])\s*(.*)$")
-            mo = pat.match(o)
-            mf = pat.match(f)
-            if mo and mf and mo.group(2) != mf.group(2):
-                deltas[fld] = mf.group(2).strip()
-                break
-
-    count = 0
-
-    def _apply(p):
-        nonlocal count
-        for label, value in deltas.items():
-            if not value:
-                continue
-            if _apply_value_to_paragraph(p, label, value):
-                count += 1
-                return
-
-    for p in doc.paragraphs:
-        _apply(p)
-    for tbl in doc.tables:
-        for row in tbl.rows:
-            for cell in row.cells:
-                for p in cell.paragraphs:
-                    _apply(p)
-    return count
-
-
-def _apply_value_to_paragraph(p, label, value):
-    txt = p.text
-    pat1 = re.compile(rf"^(\s*{re.escape(label)}\s*[:：]\s*)(.*)$")
-    m = pat1.match(txt)
-    if m:
-        prefix = m.group(1)
-        new = prefix + str(value)
-        if p.runs:
-            p.runs[0].text = new
-            for r in p.runs[1:]:
-                r.text = ""
-        else:
-            p.text = new
-        return True
-
-    pat2 = re.compile(rf"^(\s*{re.escape(label)})\s*\.{{3,}}.*$")
-    m2 = pat2.match(txt)
-    if m2:
-        prefix = m2.group(1)
-        new = prefix + " " + str(value)
-        if p.runs:
-            p.runs[0].text = new
-            for r in p.runs[1:]:
-                r.text = ""
-        else:
-            p.text = new
-        return True
-    return False
