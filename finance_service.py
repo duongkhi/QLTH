@@ -1,10 +1,20 @@
 import io
 import time
+import re as _re
 from datetime import datetime
 import pandas as pd
 
-from storage import load_json_from_db, save_json_to_db
+from storage import load_json_from_db, save_json_to_db,load_user_profile
 
+from security import detect_name_from_data, _strip_diacritics
+
+
+
+_TITLE_PREFIX_PATTERN = _re.compile(
+    r"^\s*(PGS\.?\s*TS\.?|TS\.?|ThS\.?|Th\.?\s*s\.?|KS\.?|"
+    r"Thạc\s*sĩ|Tiến\s*sĩ|Phó\s*Giáo\s*sư|Giáo\s*sư|Cử\s*nhân)\s*",
+    _re.IGNORECASE,
+)
 KEY_PROJECTS = "finance_projects"
 KEY_DISBURSEMENTS = "finance_disbursements"
 KEY_TRANSACTIONS = "finance_transactions"
@@ -301,3 +311,49 @@ def get_transactions_by_project(project_id):
     if not project_id:
         return transactions
     return [tx for tx in transactions if tx["project_id"] == project_id]
+
+
+
+def _normalize_person_name(s: str) -> str:
+    """
+    Chuẩn hóa tên người để so khớp:
+    - Cắt phần sau dấu phẩy đầu tiên ("TS. A, Viện B, Quỹ C" → "TS. A")
+    - Bỏ học hàm đầu chuỗi (TS., PGS.TS., ThS., Th.s, KS., ...)
+    - Bỏ dấu tiếng Việt
+    - Gộp khoảng trắng, bỏ toàn bộ space để an toàn
+    """
+    if not s:
+        return ""
+    s = str(s).strip()
+    s = s.split(",")[0]
+    s = _TITLE_PREFIX_PATTERN.sub("", s)
+    s = _strip_diacritics(s).lower()
+    s = " ".join(s.split())
+    return s.replace(" ", "")
+
+
+def get_visible_project_ids(ctx, projects: dict):
+    """
+    Trả về:
+      - None  → user là admin/manager, được xem TẤT CẢ
+      - list  → user thường, chỉ xem các mã đề tài mình chủ nhiệm
+    """
+    role = getattr(ctx, "role", "user")
+    if role in ("admin", "manager"):
+        return None
+
+    own = getattr(ctx, "own_profile", None)
+    if not own:
+        return []
+
+    profile = load_user_profile(own) or {}
+    user_name = detect_name_from_data(profile) or own
+    target = _normalize_person_name(user_name)
+    if not target:
+        return []
+
+    visible = []
+    for pid, p in projects.items():
+        if _normalize_person_name(p.get("pi", "")) == target:
+            visible.append(pid)
+    return visible

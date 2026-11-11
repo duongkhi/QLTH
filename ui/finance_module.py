@@ -6,14 +6,11 @@ from finance_service import (
     load_finance_data, format_currency, get_project_metrics,
     validate_and_import_excel,
     add_single_project, delete_single_project, update_single_project,
-    add_transaction, delete_transaction,
+    add_transaction, delete_transaction, get_visible_project_ids,
 )
 from finance_agent import chat_with_finance_ai
 
 
-# =============================================================
-# DIALOG SỬA ĐỀ TÀI
-# =============================================================
 @st.dialog("✏️ Sửa đề tài")
 def _edit_project_dialog(pid: str, project: dict):
     st.caption(f"Mã đề tài: **{pid}** (không thể đổi)")
@@ -34,18 +31,15 @@ def _edit_project_dialog(pid: str, project: dict):
     with c1:
         total_budget = st.number_input(
             "Tổng KP đề tài", min_value=0, step=1000000,
-            value=int(project.get("total_budget", 0)),
-        )
+            value=int(project.get("total_budget", 0)))
     with c2:
         allocated_budget = st.number_input(
             "KP giao dự toán", min_value=0, step=1000000,
-            value=int(project.get("allocated_budget", 0)),
-        )
+            value=int(project.get("allocated_budget", 0)))
     with c3:
         actual_budget = st.number_input(
             "KP sử dụng thực tế", min_value=0, step=1000000,
-            value=int(project.get("actual_budget", 0)),
-        )
+            value=int(project.get("actual_budget", 0)))
 
     st.markdown("---")
     col_save, col_cancel = st.columns(2)
@@ -67,16 +61,44 @@ def _edit_project_dialog(pid: str, project: dict):
             st.rerun()
 
 
-# =============================================================
-# MAIN
-# =============================================================
 def render_finance_module(ctx: UserContext):
     st.title("💰 Quản Lý Tài Chính Đề Tài")
     st.caption("Tổng hợp giải ngân · Quản lý đề tài · Sổ chứng từ · Trợ lý AI")
 
-    projects, disbursements, transactions = load_finance_data()
+    projects_raw, disb_raw, tx_raw = load_finance_data()
 
-    # Hiển thị flash message sau khi lưu (nếu có)
+    # --- PHÂN QUYỀN ---
+    visible_pids = get_visible_project_ids(ctx, projects_raw)
+    if visible_pids is None:
+        # admin/manager: xem tất cả
+        projects = projects_raw
+        disbursements = disb_raw
+        transactions = tx_raw
+        is_restricted = False
+    else:
+        pset = set(visible_pids)
+        projects = {k: v for k, v in projects_raw.items() if k in pset}
+        disbursements = {k: v for k, v in disb_raw.items() if k in pset}
+        transactions = [t for t in tx_raw if t.get("project_id") in pset]
+        is_restricted = True
+
+    # --- Banner thông báo cho user thường ---
+    if is_restricted:
+        if not ctx.own_profile:
+            st.error("⚠️ Tài khoản của bạn chưa có profile. Liên hệ admin để được cấp.")
+        elif not projects:
+            st.warning(
+                f"ℹ️ Bạn chưa chủ nhiệm đề tài nào trong hệ thống. "
+                f"(Họ tên đang dùng để so khớp: **{ctx.own_profile}**) "
+                "Nếu đây là nhầm lẫn, liên hệ Quản trị viên."
+            )
+        else:
+            st.info(
+                f"🔒 Bạn đang xem **{len(projects)} đề tài** do mình chủ nhiệm. "
+                "Liên hệ admin nếu cần xem thêm."
+            )
+
+    # Flash message sau khi lưu
     flash = st.session_state.pop("_project_flash", None)
     if flash:
         st.success(flash)
@@ -94,10 +116,14 @@ def render_finance_module(ctx: UserContext):
     # =================================================================
     with tabs[0]:
         if not projects:
-            st.info("Chưa có dữ liệu. Vui lòng sang tab 'Nhập liệu Excel' để nạp dữ liệu.")
+            if not is_restricted:
+                st.info("Chưa có dữ liệu. Vui lòng sang tab 'Nhập liệu Excel' để nạp dữ liệu.")
+            # user thường đã có warning ở đầu module
         else:
             total_budget = sum(p.get("actual_budget", 0) for p in projects.values())
-            total_cum = sum(max(d.get("cumulative", {}).values() or [0]) for d in disbursements.values())
+            total_cum = sum(
+                max(d.get("cumulative", {}).values() or [0])
+                for d in disbursements.values())
             total_settled = sum(d.get("settled_2026", 0) for d in disbursements.values())
 
             c1, c2, c3 = st.columns(3)
@@ -128,13 +154,14 @@ def render_finance_module(ctx: UserContext):
             }, use_container_width=True, hide_index=True)
 
     # =================================================================
-    # TAB 2: QUẢN LÝ ĐỀ TÀI
+    # TAB 2: QUẢN LÝ ĐỀ TÀI (chỉ admin/manager)
     # =================================================================
     with tabs[1]:
         if ctx.role not in ("admin", "manager"):
-            st.warning("Chỉ Admin/Manager mới có quyền Thêm/Sửa/Xóa đề tài.")
+            st.warning(
+                "🔒 Chỉ **Admin/Quản lý tổng hợp** mới có quyền Thêm/Sửa/Xóa đề tài. "
+                "Bạn chỉ có thể xem dữ liệu ở tab **Tổng quan**.")
         else:
-            # --- Thêm đề tài mới ---
             with st.expander("➕ Thêm Đề tài mới", expanded=False):
                 with st.form("add_proj", clear_on_submit=True):
                     c1, c2 = st.columns(2)
@@ -159,11 +186,8 @@ def render_finance_module(ctx: UserContext):
                             else:
                                 st.error(msg)
 
-            # --- Danh sách đề tài với nút Sửa/Xóa ---
             if projects:
                 st.markdown("### 📋 Danh sách đề tài")
-                st.caption("Mỗi đề tài có nút ✏️ Sửa và 🗑️ Xóa.")
-
                 for pid, p in projects.items():
                     with st.container(border=True):
                         c1, c2, c3 = st.columns([5, 0.6, 0.6])
@@ -176,25 +200,22 @@ def render_finance_module(ctx: UserContext):
                             )
                         with c2:
                             if st.button("✏️", key=f"edit_{pid}",
-                                         help="Sửa đề tài",
-                                         use_container_width=True):
+                                         help="Sửa đề tài", use_container_width=True):
                                 st.session_state["editing_pid"] = pid
                                 st.rerun()
                         with c3:
                             if st.button("🗑️", key=f"del_{pid}",
-                                         help="Xóa đề tài",
-                                         use_container_width=True):
+                                         help="Xóa đề tài", use_container_width=True):
                                 delete_single_project(pid)
                                 st.session_state["_project_flash"] = f"Đã xóa `{pid}`."
                                 st.rerun()
 
-        # --- Mở dialog Sửa (nằm NGOÀI khối role-check để user thường vẫn mở được nếu cần) ---
+        # Dialog nằm ngoài role-check để vẫn mở được nếu state còn sót
         editing_pid = st.session_state.get("editing_pid")
         if editing_pid:
             if editing_pid in projects:
                 _edit_project_dialog(editing_pid, projects[editing_pid])
             else:
-                # Đề tài đã bị xóa từ nơi khác
                 st.session_state["editing_pid"] = None
 
     # =================================================================
@@ -266,11 +287,12 @@ def render_finance_module(ctx: UserContext):
                                 st.rerun()
 
     # =================================================================
-    # TAB 4: NHẬP LIỆU EXCEL
+    # TAB 4: NHẬP LIỆU EXCEL (chỉ admin/manager)
     # =================================================================
     with tabs[3]:
         if ctx.role not in ("admin", "manager"):
-            st.warning("Bạn không có quyền upload dữ liệu.")
+            st.warning(
+                "🔒 Chỉ **Admin/Quản lý tổng hợp** mới có quyền upload Excel.")
         else:
             st.info(
                 "💡 File Excel phải có tên chính xác là "
@@ -294,13 +316,18 @@ def render_finance_module(ctx: UserContext):
                             st.error(msg)
 
     # =================================================================
-    # TAB 5: TRỢ LÝ AI
+    # TAB 5: TRỢ LÝ AI (phân quyền theo allowed_project_ids)
     # =================================================================
     with tabs[4]:
         st.markdown(
-            "Hỏi AI về tài chính. VD: *'Tổng kinh phí đề tài của TS. Ngô Mạnh Tiến là bao nhiêu?'*, "
+            "Hỏi AI về tài chính. VD: *'Tổng kinh phí đề tài của tôi là bao nhiêu?'*, "
             "*'Đề tài CT0000 có những chứng từ nào?'*"
         )
+
+        if is_restricted:
+            st.caption(
+                f"🔒 AI chỉ trả lời về **{len(projects)} đề tài** do bạn chủ nhiệm.")
+
         if "finance_chat" not in st.session_state:
             st.session_state.finance_chat = []
         if st.button("🗑️ Xóa lịch sử chat", key="clear_f_chat"):
@@ -312,15 +339,21 @@ def render_finance_module(ctx: UserContext):
                 st.markdown(msg["content"])
 
         if prompt := st.chat_input("Nhập câu hỏi tài chính..."):
-            st.session_state.finance_chat.append({"role": "user", "content": prompt})
+            st.session_state.finance_chat.append(
+                {"role": "user", "content": prompt})
             with st.chat_message("user"):
                 st.markdown(prompt)
+
             with st.chat_message("assistant"):
                 with st.spinner("Đang truy xuất dữ liệu..."):
                     ans, used_tool = chat_with_finance_ai(
-                        prompt, st.session_state.finance_chat)
+                        prompt,
+                        st.session_state.finance_chat,
+                        allowed_project_ids=visible_pids,
+                    )
                     st.markdown(ans)
                     if used_tool:
                         st.caption("📊 Đã truy xuất từ Database")
+
             st.session_state.finance_chat.append(
                 {"role": "assistant", "content": ans})
