@@ -17,11 +17,11 @@ META_KEYS = {"auth_config", "name_mapping", FORM_TEMPLATE_INDEX}
 
 DEFAULTS = {
     "logged_in": False, "username": "", "last_username": "",
-    "chat_history": [], "show_change_pw": False, "show_manage_users": False,
+    "chat_history": [],"finance_chat": [], "show_change_pw": False, "show_manage_users": False,
     "auth_mode": "login", "pending_toast": None, "pw_change_success": False,
     "upload_stage": None, "upload_extracted": None,
     "upload_detected_name": None, "upload_detected_dob": None,
-    "active_module": "admin",
+    "active_module": "admin",    
 }
 
 @dataclass
