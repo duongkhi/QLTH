@@ -233,3 +233,19 @@ def filter_profiles_in_db(operator: str, field: str, value: Any) -> list:
     except Exception as e:
         _notify(f"Lỗi filter {op} {field}={value!r}", e)
         return []
+
+
+# ============================================================
+# AI SETTINGS
+# ============================================================
+def get_ai_settings() -> dict:
+    """Lấy cấu hình bộ não AI (System Prompt toàn cục)."""
+    default = {
+        "chat_system_prompt": "Bạn là trợ lý AI chuyên nghiệp, thân thiện và chính xác.",
+    }
+    data = load_json_from_db("ai_settings")
+    return {**default, **data} if data else default
+
+def save_ai_settings(data: dict) -> bool:
+    """Lưu cấu hình bộ não AI."""
+    return save_json_to_db("ai_settings", data)
