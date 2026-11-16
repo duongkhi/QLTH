@@ -3,6 +3,7 @@ venv/
 .venv/
 env/
 ENV/
+temp_uploads/
 
 # File secrets
 .streamlit/secrets.toml
@@ -19,3 +20,4 @@ __pycache__/
 build/
 dist/
 *.egg-info/
+

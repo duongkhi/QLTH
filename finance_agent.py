@@ -2,8 +2,90 @@ import json
 from google.genai import types
 from ai_client import _generate_with_retry
 from finance_service import load_finance_data, get_project_metrics
+from supabase_adapter import get_ai_settings, load_json_from_db, list_keys_with_prefix, load_many
 
 
+# =============================================================
+# KNOWLEDGE BASE
+# =============================================================
+def search_knowledge_base(query, module="finance"):
+    """
+    Tra cứu tri thức: gộp cả văn bản nhập tay (key 'finance_rules') 
+    và các văn bản PDF đã xử lý (key 'kb_finance_*').
+    """
+    if module == "admin":
+        manual_key = "admin_rules"
+        prefix = "kb_admin_"
+    else:
+        manual_key = "finance_rules"
+        prefix = "kb_finance_"
+    
+    # 1. Gom tất cả key cần đọc
+    kb_keys = list_keys_with_prefix(prefix)
+    if manual_key not in kb_keys:
+        kb_keys.append(manual_key)  # Luôn thử đọc key nhập tay
+    
+    # 2. Load 1 lần (tối ưu)
+    all_data = load_many(kb_keys)
+    
+    # 3. Trích xuất rules từ mọi nguồn
+    all_rules = []
+    for key, data in all_data.items():
+        if not data:
+            continue
+        # Loại 1: Text nhập tay → coi là 1 "rule" duy nhất
+        if "content" in data and data["content"]:
+            all_rules.append({
+                "dieu_khoan": data.get("document_name", "Quy định"),
+                "noi_dung": data["content"],
+                "muc_chi": None,
+                "doi_tuong": None,
+                "tu_khoa": data["content"][:100].split(),
+            })
+        # Loại 2: Mảng rules từ PDF
+        if "rules" in data and isinstance(data["rules"], list):
+            for r in data["rules"]:
+                r["_source"] = data.get("document_name", key)
+                all_rules.append(r)
+    
+    if not all_rules:
+        return "Hệ thống chưa có tri thức nền cho phân hệ này."
+    
+    # 4. Chấm điểm & lấy top 3
+    query_lower = str(query).lower()
+    query_words = [w for w in query_lower.split() if len(w) > 1]
+    
+    scored = []
+    for rule in all_rules:
+        text = (
+            str(rule.get("noi_dung", "")) + " " +
+            " ".join(rule.get("tu_khoa", [])) + " " +
+            str(rule.get("doi_tuong", ""))
+        ).lower()
+        
+        score = sum(1 for w in query_words if w in text)
+        if score > 0:
+            scored.append((score, rule))
+    
+    if not scored:
+        return "Không tìm thấy quy định nào liên quan trong tài liệu."
+    
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top = [r[1] for r in scored[:3]]
+    
+    # 5. Format kết quả đẹp cho LLM
+    output = "Các quy định tìm thấy:\n\n"
+    for r in top:
+        src = f" (Nguồn: {r['_source']})" if r.get("_source") else ""
+        output += f"- **{r.get('dieu_khoan', '')}**{src}\n"
+        output += f"  {r.get('noi_dung', '')}\n"
+        if r.get("doi_tuong"):
+            output += f"  • Đối tượng: {r['doi_tuong']}\n"
+        if r.get("muc_chi"):
+            output += f"  • Mức chi: {r['muc_chi']}\n"
+        output += "\n"
+    
+    return output
 # =============================================================
 # TOOLS
 # =============================================================
@@ -87,8 +169,12 @@ def query_transactions_tool(project_id="", action="list",
 # =============================================================
 # CHAT
 # =============================================================
-def chat_with_finance_ai(user_q, chat_history=None,
-                          allowed_project_ids=None):
+def chat_with_finance_ai(user_q, chat_history=None, allowed_project_ids=None):
+    # 1. Lấy cấu hình AI động
+    ai_cfg = get_ai_settings()
+    db_prompt = ai_cfg.get("chat_system_prompt", "")
+
+    # 2. Định nghĩa Tools
     tools = [types.Tool(function_declarations=[
         types.FunctionDeclaration(
             name="query_finance_data",
@@ -146,17 +232,29 @@ def chat_with_finance_ai(user_q, chat_history=None,
                 required=["action"],
             ),
         ),
+        types.FunctionDeclaration(
+            name="search_knowledge",
+            description="Tìm kiếm quy chế, định mức chi tiêu, quy trình thanh toán. Dùng khi user hỏi về luật lệ, quy định.",
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "query": types.Schema(type=types.Type.STRING, description="Từ khóa (vd: 'định mức công tác phí')")
+                },
+                required=["query"],
+            ),
+        ),
     ])]
 
+    # 3. Xây dựng System Prompt
     sys_msg = (
+        f"{db_prompt}\n"
         "Bạn là Trợ lý Tài chính AI. Bạn có quyền truy cập dữ liệu báo cáo "
         "tổng hợp và sổ chứng từ chi tiết.\n"
         "Quy tắc:\n"
-        "1. Hỏi số liệu tổng hợp (VD: 'Tổng kinh phí của TS. Tiến') → gọi tool "
-        "'query_finance_data'.\n"
-        "2. Hỏi chi tiết chứng từ (VD: 'Đề tài CT01 có hóa đơn nào?') → gọi "
-        "'query_transactions'.\n"
-        "3. Định dạng tiền tệ VNĐ. Trả lời ngắn gọn, chính xác."
+        "1. Hỏi số liệu tổng hợp (VD: 'Tổng kinh phí của TS. Tiến') → gọi tool 'query_finance_data'.\n"
+        "2. Hỏi chi tiết chứng từ (VD: 'Đề tài CT01 có hóa đơn nào?') → gọi 'query_transactions'.\n"
+        "3. Hỏi về quy định, định mức, quy trình → gọi 'search_knowledge'.\n"
+        "4. Định dạng tiền tệ VNĐ. Trả lời ngắn gọn, chính xác."
     )
 
     if allowed_project_ids is not None:
@@ -192,15 +290,15 @@ def chat_with_finance_ai(user_q, chat_history=None,
             thinking_level=types.ThinkingLevel.MINIMAL),
     )
 
-    used_tool = False
+    status = None
     for _ in range(3):
         resp = _generate_with_retry(cfg, contents)
         if resp.function_calls:
-            used_tool = True
             contents.append(resp.candidates[0].content)
             parts = []
             for fc in resp.function_calls:
                 if fc.name == "query_finance_data":
+                    status = "data"
                     res = query_finance_data_tool(
                         field=str(fc.args.get("field", "")),
                         operator=str(fc.args.get("operator", "eq")),
@@ -209,16 +307,20 @@ def chat_with_finance_ai(user_q, chat_history=None,
                         allowed_projects=allowed_project_ids,
                     )
                 elif fc.name == "query_transactions":
+                    status = "transaction"
                     res = query_transactions_tool(
                         project_id=str(fc.args.get("project_id", "")),
                         action=str(fc.args.get("action", "list")),
                         allowed_projects=allowed_project_ids,
                     )
+                elif fc.name == "search_knowledge":
+                    status = "knowledge"
+                    res = search_knowledge_base(str(fc.args.get("query", "")))
                 else:
                     res = {"error": "Unknown tool"}
                 parts.append(types.Part.from_function_response(
                     name=fc.name, response={"result": res}))
             contents.append(types.Content(role="user", parts=parts))
         else:
-            return (resp.text or "").strip(), used_tool
-    return "Lỗi: AI không phản hồi.", used_tool
+            return (resp.text or "").strip(), status
+    return "Lỗi: AI không phản hồi.", status

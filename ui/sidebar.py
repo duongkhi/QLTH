@@ -10,6 +10,9 @@ from user_service import (
 )
 from storage import load_name_mapping, save_name_mapping
 from name_mapping import sync_name_mapping
+# Import thêm các hàm cần thiết cho cấu hình AI
+from supabase_adapter import load_json_from_db, save_json_to_db, get_ai_settings, save_ai_settings
+from agent_profiles import DEFAULT_PROFILES
 
 
 def render_sidebar(ctx: UserContext):
@@ -35,13 +38,21 @@ def render_sidebar(ctx: UserContext):
         # ---------- Module switcher ----------
         if ctx.is_power:
             st.markdown("**🧭 Phân hệ làm việc**")
+            
+            # Danh sách module
+            modules = ["admin", "finance", "knowledge"]
+            
+            # Tính toán index chuẩn xác
+            current_idx = modules.index(st.session_state.active_module) if st.session_state.active_module in modules else 0
+            
             module_choice = st.radio(
                 "Chọn phân hệ:",
-                ["admin", "finance"],
+                modules,
                 format_func=lambda x: (
                     "📄 1. Quản lý Hành chính" if x == "admin"
-                    else "💰 2. Quản lý Tài chính"),
-                index=0 if st.session_state.active_module == "admin" else 1,
+                    else ("💰 2. Quản lý Tài chính" if x == "finance" else "📚 3. Quản lý Pháp lý")
+                ),
+                index=current_idx,
                 label_visibility="collapsed",
                 key="module_switcher",
             )
@@ -50,9 +61,11 @@ def render_sidebar(ctx: UserContext):
                 st.rerun()
             st.markdown("---")
 
-        # ---------- Manage users ----------
+        # ---------- Manage users & AI Config ----------
         if ctx.role == "admin":
             _render_manage_users(ctx)
+            st.markdown("---")
+            _render_ai_config(ctx) 
             st.markdown("---")
 
         # ---------- Change password ----------
@@ -76,6 +89,57 @@ def render_sidebar(ctx: UserContext):
                     else:
                         st.session_state[k] = ""
             st.rerun()
+
+
+# ==========================================
+# HÀM QUẢN LÝ CẤU HÌNH AI
+# ==========================================
+def _render_ai_config(ctx: UserContext):
+    """Giao diện cấu hình System Prompt và Knowledge Base cho Admin."""
+    
+    # 1. Cấu hình System Prompt (Tính cách AI)
+    with st.expander("⚙️ Cấu hình Bộ não AI (Global)", expanded=False):
+        st.caption("Tùy chỉnh System Prompt chung cho toàn hệ thống.")
+        current_ai = get_ai_settings()
+        
+        with st.form("ai_settings_form"):
+            new_prompt = st.text_area(
+                "System Prompt (Tính cách AI)", 
+                value=current_ai.get("chat_system_prompt", ""),
+                height=120,
+                help="Định hình giọng điệu chung của AI trên mọi phân hệ."
+            )
+            if st.form_submit_button("💾 Lưu Cấu hình AI", use_container_width=True):
+                save_ai_settings({"chat_system_prompt": new_prompt})
+                st.success("✅ Đã cập nhật bộ não của AI!")
+                st.rerun()
+
+    # 2. Cấu hình Tri thức nền (Dạng văn bản ngắn)
+    with st.expander("📚 Nhập nhanh Tri thức (Text)", expanded=False):
+        st.caption("Chỉ dùng cho các quy định ngắn. Với văn bản PDF dài (Thông tư, Nghị định), hãy dùng module 'Quản lý Pháp lý'.")
+        
+        module_choice = st.selectbox(
+            "Chọn phân hệ:", 
+            list(DEFAULT_PROFILES.keys()),
+            format_func=lambda x: DEFAULT_PROFILES[x].get("display_name", x),
+            key="ai_config_module_select"
+        )
+        
+        kb_key = DEFAULT_PROFILES[module_choice].get("knowledge_base_key", f"{module_choice}_rules")
+        current_kb = load_json_from_db(kb_key)
+        kb_text = current_kb.get("content", "")
+        
+        with st.form("kb_settings_form"):
+            new_kb = st.text_area(
+                "Nội dung tri thức (Knowledge Base)", 
+                value=kb_text,
+                height=200,
+                placeholder="VD: Quy định nghỉ phép: 12 ngày/năm..."
+            )
+            if st.form_submit_button("💾 Lưu Tri thức", use_container_width=True):
+                save_json_to_db(kb_key, {"content": new_kb})
+                st.success(f"✅ Đã lưu tri thức cho phân hệ {DEFAULT_PROFILES[module_choice].get('display_name', module_choice)}!")
+                st.rerun()
 
 
 def _render_manage_users(ctx: UserContext):

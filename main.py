@@ -8,6 +8,8 @@ from ui.auth_ui import render_auth_screen
 from ui.sidebar import render_sidebar
 from ui.admin_module import render_admin_module
 from ui.finance_module import render_finance_module
+from ui.knowledge_ui import render_knowledge_ui
+
 
 
 st.set_page_config(page_title="AI Agent Hệ Thống",
@@ -59,3 +61,5 @@ if st.session_state.active_module == "admin":
     render_admin_module(ctx)
 elif st.session_state.active_module == "finance":
     render_finance_module(ctx)
+elif st.session_state.active_module == "knowledge": # Thêm module mới
+    render_knowledge_ui(ctx)

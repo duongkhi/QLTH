@@ -353,7 +353,10 @@ def render_finance_module(ctx: UserContext):
                     )
                     st.markdown(ans)
                     if used_tool:
-                        st.caption("📊 Đã truy xuất từ Database")
+                        if used_tool == "knowledge":
+                            st.caption("📚 Đã tra cứu quy định tài chính")
+                        else:
+                            st.caption("📊 Đã truy xuất từ Database")
 
             st.session_state.finance_chat.append(
                 {"role": "assistant", "content": ans})

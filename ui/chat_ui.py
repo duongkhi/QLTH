@@ -22,43 +22,57 @@ def render_chat_caption(msg):
         st.caption("📋 Đã liệt kê hồ sơ")
     elif s == "search":
         st.caption("🔍 Đã tìm kiếm dữ liệu")
+    elif s == "knowledge":
+        st.caption("📚 Đã tra cứu tri thức / quy định")
     else:
         st.caption("💬 Chat thường")
 
 
 def render_chat_section(ctx: UserContext):
     st.subheader("💬 3. Hỏi đáp trực tiếp")
-    st.caption("Ví dụ: *'Chào bạn'*, *'Hộ khẩu của tôi'*, "
-               "*'Liệt kê người sinh trước 1975'*")
+    
+    # Lấy module hiện tại (admin, finance, payroll...)
+    module = st.session_state.get("active_module", "admin")
+    
+    # Tạo key riêng cho lịch sử chat của từng module
+    chat_key = f"chat_history_{module}"
+    if chat_key not in st.session_state:
+        st.session_state[chat_key] = []
 
-    if st.button("🗑️ Xóa lịch sử chat", key="btn_clear_chat"):
-        st.session_state.chat_history = []
+    st.caption("Ví dụ: *'Chào bạn'*, *'Hộ khẩu của tôi'*, "
+               "*'Quy định nghỉ phép thế nào?'*")
+
+    if st.button("🗑️ Xóa lịch sử chat", key=f"btn_clear_chat_{module}"):
+        st.session_state[chat_key] = []
         st.rerun()
 
-    for msg in st.session_state.chat_history:
+    for msg in st.session_state[chat_key]:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
             if msg["role"] == "assistant":
                 render_chat_caption(msg)
 
-    user_q = st.chat_input("Nhập câu hỏi...", key="main_chat_input")
+    user_q = st.chat_input("Nhập câu hỏi...", key=f"main_chat_input_{module}")
     if not user_q:
         return
 
-    hist = list(st.session_state.chat_history)
+    hist = list(st.session_state[chat_key])
     with st.chat_message("user"):
         st.markdown(user_q)
-    st.session_state.chat_history.append(
+    
+    st.session_state[chat_key].append(
         {"role": "user", "content": user_q})
 
     with st.chat_message("assistant"):
         with st.spinner("Đang suy nghĩ..."):
             try:
+                # Truyền thêm module vào hàm chat
                 answer, used, p_used, status = chat_with_ai(
                     user_q=user_q,
                     allowed=ctx.allowed_profiles,
                     username=ctx.username,
                     user_record=ctx.record,
+                    module=module, # <--- THÊM DÒNG NÀY
                     chat_history=hist,
                 )
                 st.markdown(answer)
@@ -73,9 +87,9 @@ def render_chat_section(ctx: UserContext):
                 st.markdown(answer)
                 write_system_log(ctx.username, "Chat", f"Lỗi ({e})")
 
-    st.session_state.chat_history.append({
+    st.session_state[chat_key].append({
         "role": "assistant", "content": answer,
         "used_data": used, "profile_used": p_used, "tool_status": status,
     })
-    write_system_log(ctx.username, "Chat",
+    write_system_log(ctx.username, f"Chat [{module}]",
                      f"OK (data={'yes' if used else 'no'}, status={status})")
