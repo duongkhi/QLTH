@@ -1,95 +1,80 @@
 import streamlit as st
-
 from config import UserContext
-from chat_agent import chat_with_ai
+from chat_agent import chat_with_ai, load_chat_history, save_chat_history
 from storage import write_system_log
-
 
 def render_chat_caption(msg):
     if not msg.get("used_data"):
         st.caption("💬 Chat thường")
         return
     s, p = msg.get("tool_status"), msg.get("profile_used")
-    if s == "ok":
-        st.caption(f"📊 Đã tra cứu **{p}**")
-    elif s == "no_data":
-        st.caption(f"📭 Hồ sơ **{p}** chưa có dữ liệu")
-    elif s == "not_found":
-        st.caption(f"🚫 Không tìm thấy **{p}**")
-    elif s == "ambiguous":
-        st.caption(f"⚠️ Nhiều hồ sơ khớp: **{p}**")
-    elif s == "list":
-        st.caption("📋 Đã liệt kê hồ sơ")
-    elif s == "search":
-        st.caption("🔍 Đã tìm kiếm dữ liệu")
-    elif s == "knowledge":
-        st.caption("📚 Đã tra cứu tri thức / quy định")
-    else:
-        st.caption("💬 Chat thường")
-
+    if s == "ok": st.caption(f"📊 Đã tra cứu **{p}**")
+    elif s == "no_data": st.caption(f"📭 Hồ sơ **{p}** chưa có dữ liệu")
+    elif s == "not_found": st.caption(f"🚫 Không tìm thấy **{p}**")
+    elif s == "list": st.caption("📋 Đã liệt kê hồ sơ")
+    elif s == "search": st.caption("🔍 Đã tìm kiếm dữ liệu")
+    elif s == "knowledge": st.caption("📚 Đã tra cứu tri thức nội bộ")
+    elif s in ("data", "transaction"): st.caption("📊 Đã truy xuất dữ liệu tài chính")
+    else: st.caption("💬 Chat thường")
 
 def render_chat_section(ctx: UserContext):
-    st.subheader("💬 3. Hỏi đáp trực tiếp")
-    
-    # Lấy module hiện tại (admin, finance, payroll...)
-    module = st.session_state.get("active_module", "admin")
-    
-    # Tạo key riêng cho lịch sử chat của từng module
-    chat_key = f"chat_history_{module}"
-    if chat_key not in st.session_state:
-        st.session_state[chat_key] = []
+    st.markdown("---")
+    st.subheader("💬 Trợ lý AI Hợp nhất")
+    st.caption(f"*(Trợ lý đang hoạt động ở chế độ: **{ctx.role.upper()}**)*")
 
-    st.caption("Ví dụ: *'Chào bạn'*, *'Hộ khẩu của tôi'*, "
-               "*'Quy định nghỉ phép thế nào?'*")
+    # Tải lịch sử chat từ Supabase (chỉ tải 1 lần khi mở app)
+    cache_key = f"chat_hist_{ctx.username}"
+    if cache_key not in st.session_state:
+        with st.spinner("Đang tải lịch sử chat..."):
+            st.session_state[cache_key] = load_chat_history(ctx.username)
 
-    if st.button("🗑️ Xóa lịch sử chat", key=f"btn_clear_chat_{module}"):
-        st.session_state[chat_key] = []
-        st.rerun()
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        if st.button("🗑️ Xóa lịch sử", key="btn_clear_chat", use_container_width=True):
+            st.session_state[cache_key] = []
+            save_chat_history(ctx.username, [])
+            st.rerun()
 
-    for msg in st.session_state[chat_key]:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-            if msg["role"] == "assistant":
-                render_chat_caption(msg)
+    # Render khung chat
+    chat_container = st.container(height=500) 
+    with chat_container:
+        for msg in st.session_state[cache_key]:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+                if msg["role"] == "assistant":
+                    render_chat_caption(msg)
 
-    user_q = st.chat_input("Nhập câu hỏi...", key=f"main_chat_input_{module}")
+    # Ô nhập chat
+    user_q = st.chat_input("Nhập câu hỏi...", key="main_chat_input")
     if not user_q:
         return
 
-    hist = list(st.session_state[chat_key])
-    with st.chat_message("user"):
-        st.markdown(user_q)
-    
-    st.session_state[chat_key].append(
-        {"role": "user", "content": user_q})
+    # Xử lý khi user gửi tin nhắn
+    hist = list(st.session_state[cache_key])
+    st.session_state[cache_key].append({"role": "user", "content": user_q})
 
-    with st.chat_message("assistant"):
-        with st.spinner("Đang suy nghĩ..."):
-            try:
-                # Truyền thêm module vào hàm chat
-                answer, used, p_used, status = chat_with_ai(
-                    user_q=user_q,
-                    allowed=ctx.allowed_profiles,
-                    username=ctx.username,
-                    user_record=ctx.record,
-                    module=module, # <--- THÊM DÒNG NÀY
-                    chat_history=hist,
-                )
-                st.markdown(answer)
-                render_chat_caption({
-                    "used_data": used,
-                    "profile_used": p_used,
-                    "tool_status": status,
-                })
-            except Exception as e:
-                answer = f"❌ Lỗi: {e}"
-                used, p_used, status = False, None, None
-                st.markdown(answer)
-                write_system_log(ctx.username, "Chat", f"Lỗi ({e})")
+    with st.spinner("Đang suy nghĩ..."):
+        try:
+            answer, used, p_used, status = chat_with_ai(
+                user_q=user_q,
+                allowed_profiles=ctx.allowed_profiles,
+                username=ctx.username,
+                user_record=ctx.record,
+                chat_history=hist,
+            )
+        except Exception as e:
+            answer = f"❌ Lỗi: {e}"
+            used, p_used, status = False, None, None
+            write_system_log(ctx.username, "Chat", f"Lỗi ({e})")
 
-    st.session_state[chat_key].append({
+    # Cập nhật UI và lưu vào Database
+    new_msg = {
         "role": "assistant", "content": answer,
-        "used_data": used, "profile_used": p_used, "tool_status": status,
-    })
-    write_system_log(ctx.username, f"Chat [{module}]",
-                     f"OK (data={'yes' if used else 'no'}, status={status})")
+        "used_data": used, "profile_used": p_used, "tool_status": status
+    }
+    st.session_state[cache_key].append(new_msg)
+    
+    # Lưu lịch sử lên Supabase (chỉ lưu, không cần chờ)
+    save_chat_history(ctx.username, st.session_state[cache_key])
+    
+    st.rerun()

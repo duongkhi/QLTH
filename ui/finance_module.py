@@ -1,3 +1,4 @@
+#finance_module.py
 import streamlit as st
 import pandas as pd
 import time
@@ -108,7 +109,6 @@ def render_finance_module(ctx: UserContext):
         "📁 Quản lý Đề tài",
         "🧾 Sổ chứng từ",
         "📤 Nhập liệu Excel",
-        "🤖 Trợ lý AI",
     ])
 
     # =================================================================
@@ -315,48 +315,4 @@ def render_finance_module(ctx: UserContext):
                         else:
                             st.error(msg)
 
-    # =================================================================
-    # TAB 5: TRỢ LÝ AI (phân quyền theo allowed_project_ids)
-    # =================================================================
-    with tabs[4]:
-        st.markdown(
-            "Hỏi AI về tài chính. VD: *'Tổng kinh phí đề tài của tôi là bao nhiêu?'*, "
-            "*'Đề tài CT0000 có những chứng từ nào?'*"
-        )
-
-        if is_restricted:
-            st.caption(
-                f"🔒 AI chỉ trả lời về **{len(projects)} đề tài** do bạn chủ nhiệm.")
-
-        if "finance_chat" not in st.session_state:
-            st.session_state.finance_chat = []
-        if st.button("🗑️ Xóa lịch sử chat", key="clear_f_chat"):
-            st.session_state.finance_chat = []
-            st.rerun()
-
-        for msg in st.session_state.finance_chat:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-
-        if prompt := st.chat_input("Nhập câu hỏi tài chính..."):
-            st.session_state.finance_chat.append(
-                {"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.markdown(prompt)
-
-            with st.chat_message("assistant"):
-                with st.spinner("Đang truy xuất dữ liệu..."):
-                    ans, used_tool = chat_with_finance_ai(
-                        prompt,
-                        st.session_state.finance_chat,
-                        allowed_project_ids=visible_pids,
-                    )
-                    st.markdown(ans)
-                    if used_tool:
-                        if used_tool == "knowledge":
-                            st.caption("📚 Đã tra cứu quy định tài chính")
-                        else:
-                            st.caption("📊 Đã truy xuất từ Database")
-
-            st.session_state.finance_chat.append(
-                {"role": "assistant", "content": ans})
+   

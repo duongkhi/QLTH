@@ -200,7 +200,6 @@ def filter_profiles_in_db(operator: str, field: str, value: Any) -> list:
 
     Args:
         operator: 'eq'|'neq'|'gt'|'gte'|'lt'|'lte'|'like'|'ilike'|'in'|'cs'|'cd'
-                  (whitelist — toán tử khác trả [] để tránh injection)
         field:    JSON path, vd 'data->>ngay_sinh'
         value:    str | number | list
 
@@ -218,10 +217,18 @@ def filter_profiles_in_db(operator: str, field: str, value: Any) -> list:
         if op == "in":
             vals = value if isinstance(value, (list, tuple)) else [value]
             query = query.in_(field, list(vals))
+            
         elif op in ("cs", "contains"):
-            query = query.contains(field, value)
+            # SỬA LỖI: Nếu là text (->>) → dùng ilike thay vì contains
+            # Nếu là mảng/jsonb → giữ nguyên contains
+            if "->>" in field:
+                query = query.ilike(field, f"%{value}%")
+            else:
+                query = query.contains(field, value)
+                
         elif op in ("cd", "contained_by"):
             query = query.contained_by(field, value)
+            
         elif op in _ALLOWED_OPS:
             query = getattr(query, op)(field, value)
         else:
@@ -245,6 +252,7 @@ def get_ai_settings() -> dict:
     }
     data = load_json_from_db("ai_settings")
     return {**default, **data} if data else default
+
 
 def save_ai_settings(data: dict) -> bool:
     """Lưu cấu hình bộ não AI."""

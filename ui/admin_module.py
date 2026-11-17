@@ -36,7 +36,6 @@ from form_templates import (
     extract_fields_heuristic,
     extract_fields_with_ai,
 )
-from ui.chat_ui import render_chat_section
 
 
 # =====================================================================
@@ -94,8 +93,7 @@ def render_admin_module(ctx: UserContext):
 
     _render_upload_section(ctx)
     _render_form_section(ctx)
-    st.markdown("---")
-    render_chat_section(ctx)
+
 
 
 # =====================================================================

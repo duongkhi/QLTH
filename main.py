@@ -9,7 +9,8 @@ from ui.sidebar import render_sidebar
 from ui.admin_module import render_admin_module
 from ui.finance_module import render_finance_module
 from ui.knowledge_ui import render_knowledge_ui
-
+from ui.chat_ui import render_chat_section
+from ui.profile_ui import render_profile_page
 
 
 st.set_page_config(page_title="AI Agent Hệ Thống",
@@ -43,8 +44,13 @@ own_profile = get_own_profile(user_record, st.session_state.username)
 allowed_profiles = compute_allowed_profiles(user_record)
 is_power = role_key in ("admin", "manager")
 
-if not is_power:
-    st.session_state.active_module = "admin"
+# ĐÃ SỬA: Không ép user thường vào "admin" nữa, để mặc định là "profile"
+if "active_module" not in st.session_state:
+    st.session_state.active_module = "profile"
+    
+# Nếu là user thường mà lại đang đứng ở các module của Admin/Manager thì đẩy về profile
+if not is_power and st.session_state.active_module not in ("profile", "admin"):
+    st.session_state.active_module = "profile"
 
 ctx = UserContext(
     username=st.session_state.username,
@@ -55,11 +61,26 @@ ctx = UserContext(
     is_power=is_power,
 )
 
+# Render Sidebar
 render_sidebar(ctx)
 
-if st.session_state.active_module == "admin":
+# ==========================================
+# ĐIỀU HƯỚNG MODULE (ROUTING)
+# ==========================================
+# ĐÃ SỬA: Dùng đúng st.session_state.active_module
+active_mod = st.session_state.active_module
+
+if active_mod == "profile":
+    # Mặc định render trang cá nhân của chính mình
+    render_profile_page(ctx, ctx.username) 
+elif active_mod == "admin":
     render_admin_module(ctx)
-elif st.session_state.active_module == "finance":
+elif active_mod == "finance":
     render_finance_module(ctx)
-elif st.session_state.active_module == "knowledge": # Thêm module mới
+elif active_mod == "knowledge":
     render_knowledge_ui(ctx)
+
+# ==========================================
+# CHAT TOÀN CẦU (Luôn nằm dưới cùng)
+# ==========================================
+render_chat_section(ctx)
