@@ -1,5 +1,6 @@
 import io
 import re
+import pymupdf
 import streamlit as st
 import streamlit.components.v1 as components
 from docx import Document
@@ -7,24 +8,31 @@ import mammoth
 
 from config import MAX_CHARS
 
+
+class ScannedPdfError(Exception):
+    """Ngoại lệ khi file PDF là ảnh scan chưa có lớp văn bản (text layer)."""
+    pass
+
+
 # =====================================================================
 # BẢNG MÃ SỬA LỖI FONT TCVN3 (Mojibake)
 # =====================================================================
 TCVN3_MAP = {
-    "H·": "Họ", "h·": "họ", "vµ": "và", "tªn": "tên", "Sè": "Số", "chong": "chứng", 
-    "minh": "minh", "Tªn": "Tên", "trêng": "trường", "Mèi": "Mối", "quan": "quan", 
-    "hÖ": "hệ", "Hä": "Họ", "®": "đ", "tõ": "từ", "®Õn": "đến", "b³ng": "bằng", 
-    "cÊp": "cấp", "ngµy": "ngày", "th,ng": "tháng", "n¨m": "năm", "nam": "nam", 
+    "H·": "Họ", "h·": "họ", "vµ": "và", "tªn": "tên", "Sè": "Số", "chong": "chứng",
+    "minh": "minh", "Tªn": "Tên", "trêng": "trường", "Mèi": "Mối", "quan": "quan",
+    "hÖ": "hệ", "Hä": "Họ", "®": "đ", "tõ": "từ", "®Õn": "đến", "b³ng": "bằng",
+    "cÊp": "cấp", "ngµy": "ngày", "th,ng": "tháng", "n¨m": "năm", "nam": "nam",
     "n÷": "nữ", "tr×nh": "trình", "®é": "độ", "chuyªn": "chuyên", "m«n": "môn",
     "®-n": "đơn", "vÞ": "vị", "c«ng": "công", "t¸c": "tác", "®¶ng": "đảng",
-    "®oµn": "đoàn", "thÓ": "thể", "trêng": "trường", "tØnh": "tỉnh", "phè": "phố",
+    "®oµn": "đoàn", "thÓ": "thể", "tØnh": "tỉnh", "phè": "phố",
     "quËn": "quận", "huyÖn": "huyện", "x·": "xã", "th«n": "thôn", "ng¸ch": "ngách",
     "nghiÖp": "nghiệp", "chÝnh": "chính", "trÞ": "trị", "ngo¹i": "ngoại", "ng÷": "ngữ",
-    "tin": "tin", "häc": "học", "Tªn": "Tên", "®µo": "đào", "t¹o": "tạo", "båi": "bồi",
+    "tin": "tin", "häc": "học", "®µo": "đào", "t¹o": "tạo", "båi": "bồi",
     "dìng": "dưỡng", "H×nh": "Hình", "thøc": "thức", "V¨n": "Văn", "chøng": "chứng",
     "chØ": "chỉ", "Kü": "Kỹ", "s-": "sư", "Cö": "Cử", "nh©n": "nhân", "Th.s": "Th.s",
-    "TS": "TS", "TSKH": "TSKH", "Gi¸o": "Giáo", "s-": "sư", "Phã": "Phó"
+    "TS": "TS", "TSKH": "TSKH", "Gi¸o": "Giáo", "Phã": "Phó"
 }
+
 
 def fix_tcvn3_text(text: str) -> str:
     """Sửa lỗi font TCVN3 cơ bản sang Unicode."""
@@ -35,26 +43,73 @@ def fix_tcvn3_text(text: str) -> str:
     return text
 
 
-# ---------- Extract ----------
+# ---------- Extract DOCX & PDF ----------
 def extract_text_from_docx(uf):
     doc = Document(uf)
     parts = []
     for p in doc.paragraphs:
         if p.text.strip():
             parts.append(fix_tcvn3_text(p.text.strip()))
-            
+
     for t in doc.tables:
         for r in t.rows:
             cells = [fix_tcvn3_text(c.text.strip()) for c in r.cells if c.text.strip()]
             if cells:
                 parts.append(" | ".join(cells))
-                
+
     return "\n".join(parts)
 
 
 @st.cache_data(show_spinner=False, max_entries=20)
 def cached_extract_docx(b: bytes) -> str:
     return extract_text_from_docx(io.BytesIO(b))
+
+
+def extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
+    """Đọc text từ bytes của file PDF (bao gồm cả text ẩn/rawdict). Ném ScannedPdfError nếu thiếu text layer."""
+    extracted_pages = []
+    with pymupdf.open(stream=pdf_bytes, filetype="pdf") as doc:
+        for page in doc:
+            text = page.get_text("text")
+            if len(text.strip()) >= 10:
+                extracted_pages.append(fix_tcvn3_text(text))
+                continue
+
+            # Fallback đọc rawdict nếu là text ẩn hoặc lỗi font
+            raw_lines = []
+            rawdict = page.get_text("rawdict")
+            for block in rawdict.get("blocks", []):
+                for line in block.get("lines", []):
+                    line_chars = [
+                        char.get("c", "")
+                        for span in line.get("spans", [])
+                        for char in span.get("chars", [])
+                    ]
+                    raw_lines.append("".join(line_chars))
+            extracted_pages.append(fix_tcvn3_text("\n".join(raw_lines)))
+
+    full_text = "\n".join(extracted_pages).strip()
+
+    # Nếu toàn bộ file có dưới 50 ký tự -> PDF scan ảnh thuần chưa OCR
+    if len(full_text) < 50:
+        raise ScannedPdfError(
+            "File PDF này là bản scan (không có lớp văn bản - text layer)."
+        )
+
+    return full_text
+
+
+@st.cache_data(show_spinner=False, max_entries=20)
+def cached_extract_pdf(b: bytes) -> str:
+    return extract_text_from_pdf_bytes(b)
+
+
+def extract_profile_document(file_bytes: bytes, filename: str) -> str:
+    """Trích xuất văn bản thô từ file .docx hoặc .pdf."""
+    ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+    if ext == "pdf":
+        return cached_extract_pdf(file_bytes)
+    return cached_extract_docx(file_bytes)
 
 
 def smart_truncate(t, m=MAX_CHARS):

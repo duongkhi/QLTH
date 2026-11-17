@@ -1,8 +1,8 @@
+# user_service.py
 import re
 import streamlit as st
 from supabase_adapter import load_json_from_db, save_json_to_db
-from storage import (get_all_existing_profiles, load_user_profile,
-                     save_user_profile)
+from storage import get_all_existing_profiles, load_user_profile
 from security import hash_password
 
 
@@ -21,6 +21,8 @@ def _migrate_user_record(uname, rec):
             rec["own_profile"] = uname if uname in a else None
     if role == "user" and not rec.get("own_profile"):
         rec["own_profile"] = uname
+    if "allowed_tools" not in rec:
+        rec["allowed_tools"] = []
     rec.pop("allowed_profiles", None)
     return rec
 
@@ -33,7 +35,9 @@ def load_auth_config():
         cfg = {"users": {
             "admin": {
                 "password_hash": hash_password(default_pw),
-                "own_profile": None, "role": "admin",
+                "own_profile": None,
+                "role": "admin",
+                "allowed_tools": ["finance", "knowledge", "form_batch"],
             },
         }}
         save_json_to_db("auth_config", cfg)
@@ -82,40 +86,42 @@ def create_user(u, pw):
         return False, "Tên đăng nhập đã tồn tại."
     c["users"][u] = {
         "password_hash": hash_password(pw),
-        "own_profile": u, "role": "user",
+        "own_profile": u,
+        "role": "user",
+        "allowed_tools": [],
     }
     save_auth_config(c)
-    return True, "Đăng ký thành công! Hãy nạp dữ liệu ở mục 1."
+    return True, "Đăng ký thành công! Hãy nạp dữ liệu ở mục Setting."
 
 
-def admin_create_user(u, pw, role):
+def admin_create_user(u, pw, role, own_prof=None, allowed_tools=None):
     c = load_auth_config()
     if u in c["users"]:
         return False, "Tên đăng nhập đã tồn tại."
     c["users"][u] = {
         "password_hash": hash_password(pw),
-        "own_profile": u if role == "user" else None,
+        "own_profile": own_prof if own_prof else (u if role == "user" else None),
         "role": role,
+        "allowed_tools": allowed_tools or [],
     }
     save_auth_config(c)
-    if role == "user" and load_user_profile(u):
+    if c["users"][u]["own_profile"] and load_user_profile(c["users"][u]["own_profile"]):
         from name_mapping import sync_name_mapping
-        sync_name_mapping([u])
+        sync_name_mapping([c["users"][u]["own_profile"]])
     return True, f"Đã tạo user '{u}' (role '{role}')."
 
 
-def admin_update_user(target, new_role, new_own):
+def admin_update_user(target, new_role, new_own, new_tools=None):
     c = load_auth_config()
     if target not in c["users"]:
         return False, "Không tìm thấy user."
     rec = c["users"][target]
     rec["role"] = new_role
-    rec["own_profile"] = (
-        target if new_role == "user"
-        else (new_own if new_own else None)
-    )
+    rec["own_profile"] = new_own if new_own else (target if new_role == "user" else None)
+    if new_tools is not None:
+        rec["allowed_tools"] = new_tools
     save_auth_config(c)
-    return True, f"Đã cập nhật user '{target}'."
+    return True, f"Đã cập nhật phân quyền cho '{target}'."
 
 
 def admin_reset_password(target, new_pw):

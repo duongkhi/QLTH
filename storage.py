@@ -1,3 +1,4 @@
+# storage.py
 import os
 import time
 from supabase_adapter import (
@@ -8,6 +9,22 @@ from config import META_KEYS, FORM_TEMPLATE_PREFIX
 
 DATA_DIR = "./database"
 LOG_FILE = os.path.join(DATA_DIR, "system_logs.txt")
+
+# Các tiền tố key hệ thống trên Supabase (không phải hồ sơ cá nhân)
+SYSTEM_KEY_PREFIXES = (
+    "_",
+    FORM_TEMPLATE_PREFIX,
+    "chat_history_",
+    "finance_",
+    "kb_",
+)
+SYSTEM_EXACT_KEYS = META_KEYS | {
+    "admin_rules",
+    "finance_rules",
+    "finance_projects",
+    "finance_disbursements",
+    "finance_transactions",
+}
 
 __all__ = [
     "load_json_from_db", "save_json_to_db", "delete_key_from_db",
@@ -41,9 +58,8 @@ def save_name_mapping(m):
 def get_all_existing_profiles():
     return sorted(
         k for k in list_all_keys()
-        if k not in META_KEYS
-        and not k.startswith("_")
-        and not k.startswith(FORM_TEMPLATE_PREFIX)
+        if k not in SYSTEM_EXACT_KEYS
+        and not any(k.startswith(pref) for pref in SYSTEM_KEY_PREFIXES)
     )
 
 

@@ -1,3 +1,4 @@
+# profile_service.py
 from storage import (load_user_profile, save_user_profile,
                      load_name_mapping)
 from security import (_norm, _strip_diacritics, _name_matches_query,
@@ -77,19 +78,14 @@ def suggest_profile_key(name):
 
 
 def merge_and_save(key, new_data, overwrite=False):
-    """
-    Gộp dữ liệu mới vào hồ sơ hiện tại.
-    - overwrite=True: Ghi đè toàn bộ (dùng cho nút "Ghi đè").
-    - overwrite=False: 
-      + List: Nối thêm phần tử mới (không trùng lặp).
-      + Đơn trị: Ghi đè nếu có giá trị mới.
-      + Rỗng (None, "", []): Bỏ qua, giữ nguyên giá trị cũ.
-    """
+    """Gộp dữ liệu mới vào hồ sơ hiện tại, bảo toàn cấu hình _public_fields."""
     old_data = load_user_profile(key)
+    saved_public = old_data.get("_public_fields") if isinstance(old_data, dict) else None
 
-    # Nếu ghi đè toàn bộ hoặc chưa có dữ liệu cũ
     if overwrite or not old_data:
         final = {k: v for k, v in new_data.items() if v not in (None, "", [], {})}
+        if saved_public is not None and "_public_fields" not in final:
+            final["_public_fields"] = saved_public
         save_user_profile(key, final)
         update_name_mapping_from_profile(key, final)
         return final, {"added": final, "updated": {}, "appended": {}}
@@ -98,24 +94,18 @@ def merge_and_save(key, new_data, overwrite=False):
     changes = {"added": {}, "updated": {}, "appended": {}}
 
     for k, v in new_data.items():
-        # 1. Bỏ qua nếu giá trị mới rỗng
         if v is None or v == "" or v == [] or v == {}:
             continue
 
-        # 2. Nếu là List -> Nối thêm
         if isinstance(v, list):
             if k in final and isinstance(final[k], list):
-                # Lọc các phần tử mới chưa có trong mảng cũ
                 new_items = [item for item in v if item not in final[k]]
                 if new_items:
                     final[k] = final[k] + new_items
                     changes["appended"][k] = new_items
             else:
-                # Chưa có hoặc kiểu dữ liệu cũ không phải list -> Ghi đè bằng list mới
                 final[k] = v
                 changes["added"][k] = v
-        
-        # 3. Nếu là đơn trị (String, Int, Dict...) -> Ghi đè
         else:
             if k not in final:
                 final[k] = v
@@ -126,7 +116,6 @@ def merge_and_save(key, new_data, overwrite=False):
 
     save_user_profile(key, final)
     update_name_mapping_from_profile(key, final)
-    
     return final, changes
 
 
