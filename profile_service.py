@@ -45,6 +45,18 @@ def resolve_profile(query, allowed):
     for k in allowed:
         if _strip_diacritics(k).replace(" ", "").lower() == qs:
             return k, [], None, None
+
+    # Tìm kiếm gần đúng trực tiếp trong dữ liệu hồ sơ (ho_ten, ho_va_ten, full_name)
+    from storage import load_user_profile
+    for k in allowed:
+        d = load_user_profile(k)
+        if not d:
+            continue
+        for field in ("ho_va_ten", "ho_ten", "full_name", "name"):
+            v = d.get(field, "")
+            if v and _strip_diacritics(str(v)).replace(" ", "").lower() == qs:
+                return k, [], None, None
+
     return None, [], "not_found", f"Không tìm thấy hồ sơ khớp '{q}'."
 
 

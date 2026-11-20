@@ -1,24 +1,55 @@
 # chat_agent.py
 import json
+import re as _re
 import streamlit as st
-from google.genai import types
 
 from ai_client import _generate_with_retry
-from config import META_KEYS
-from security import detect_name_from_data
-from storage import load_user_profile, load_name_mapping, get_all_existing_profiles
-from profile_service import resolve_profile, suggest_profile_key
-from user_service import get_own_profile
-from supabase_adapter import get_ai_settings, filter_profiles_in_db, load_json_from_db, save_json_to_db, load_many
-from finance_agent import query_finance_data_tool, query_transactions_tool, search_knowledge_base
+from config import META_KEYS, UserContext
+from security import detect_name_from_data, detect_dob_from_data
+from storage import (
+    load_user_profile, load_name_mapping, get_all_existing_profiles,
+)
+from profile_service import (
+    resolve_profile, suggest_profile_key, merge_and_save, find_identity_matches,
+)
+from user_service import get_own_profile, admin_create_user
+from supabase_adapter import (
+    get_ai_settings, filter_profiles_in_db, load_json_from_db,
+    save_json_to_db, load_many,
+)
+from finance_agent import (
+    query_finance_data_tool, query_transactions_tool, search_knowledge_base,
+)
 from finance_service import load_finance_data, get_visible_project_ids
 from tool_registry import TOOL_REGISTRY
+from docx_utils import extract_profile_document, smart_truncate
+from form_templates import list_form_templates, get_form_template, get_template_docx_bytes
 
 DEFAULT_PUBLIC_FIELDS = {
     "ho_va_ten", "ho_ten", "full_name", "hoc_ham", "hoc_vi",
     "chuc_vu", "don_vi", "don_vi_cong_tac", "email",
     "huong_nghien_cuu", "linh_vuc", "de_tai", "cong_bo", "giai_thuong",
 }
+
+# ============================================================
+# BỘ NHỚ / CACHE (giảm gọi Supabase lẻ)
+# ============================================================
+_profiles_cache: dict = {}
+
+
+def _load_many_cached(keys: list) -> dict:
+    """Tải nhiều hồ sơ cùng 1 query Supabase, cache lại để gọi lại không tốn thêm."""
+    if not keys:
+        return {}
+    missing = [k for k in keys if k not in _profiles_cache]
+    if missing:
+        fresh = load_many(missing)
+        _profiles_cache.update(fresh)
+    return {k: _profiles_cache.get(k, {}) for k in keys}
+
+
+def _clear_profile_cache():
+    _profiles_cache.clear()
 
 
 # ==========================================
@@ -42,11 +73,7 @@ def save_chat_history(username, history):
 # TOOLS IMPLEMENTATION
 # ==========================================
 def list_accessible_profiles(allowed):
-    """Lấy thông tin tóm tắt các hồ sơ có quyền truy cập.
-
-    Dùng load_many để tải toàn bộ hồ sơ cần thiết trong một query Supabase
-    thay vì gọi lẻ từng hồ sơ, giúp giảm thời gian chờ trên Streamlit Cloud.
-    """
+    """Lấy thông tin tóm tắt các hồ sơ có quyền truy cập."""
     m = load_name_mapping()
     profiles = load_many(list(allowed)) if allowed else {}
     return [
@@ -93,257 +120,589 @@ def _build_registry_ctx(allowed_profiles):
 
 
 # ==========================================
-# MAIN CHAT ENGINE
+# HELPER: XÂY DỰNG PROMPT CHO AI
 # ==========================================
-def chat_with_ai(user_q, allowed_profiles, username, user_record, chat_history=None, viewing_profile=None):
-    role = user_record.get("role", "guest") if username else "guest"
-    own_profile = get_own_profile(user_record, username) if username else None
-    allowed_tools = user_record.get("allowed_tools", []) if username else []
-    can_finance = role in ("admin", "manager") or ("finance" in allowed_tools)
-
-    ai_cfg = get_ai_settings()
-    db_prompt = ai_cfg.get("chat_system_prompt", "")
-
-    # 1. Khai báo Tools cơ bản
-    all_tools = [
-        types.FunctionDeclaration(
-            name="get_profile_data",
-            description="Lấy dữ liệu hồ sơ nhân sự.",
-            parameters=types.Schema(
-                type=types.Type.OBJECT,
-                properties={"profile_name": types.Schema(type=types.Type.STRING)},
-                required=["profile_name"],
-            ),
-        ),
-        types.FunctionDeclaration(
-            name="list_accessible_profiles",
-            description="Liệt kê hồ sơ user có quyền.",
-            parameters=types.Schema(type=types.Type.OBJECT, properties={}),
-        ),
-        types.FunctionDeclaration(
-            name="search_profiles",
-            description="Tìm kiếm/lọc hồ sơ theo trường.",
-            parameters=types.Schema(
-                type=types.Type.OBJECT,
-                properties={
-                    "field": types.Schema(type=types.Type.STRING),
-                    "operator": types.Schema(
-                        type=types.Type.STRING,
-                        enum=["eq", "neq", "gt", "gte", "lt", "lte", "like", "ilike", "in", "contains"],
-                    ),
-                    "value": types.Schema(type=types.Type.STRING),
-                },
-                required=["field", "operator", "value"],
-            ),
-        ),
-        types.FunctionDeclaration(
-            name="query_finance_data",
-            description="Truy vấn danh sách đề tài, số liệu kinh phí. Dùng để tìm kiếm chéo khi hỏi về một người.",
-            parameters=types.Schema(
-                type=types.Type.OBJECT,
-                properties={
-                    "field": types.Schema(type=types.Type.STRING, description="Trường cần lọc (VD: 'pi'). Để trống nếu lấy toàn bộ."),
-                    "operator": types.Schema(type=types.Type.STRING, enum=["eq", "contains", "gt", "lt", "all"], description="Dùng 'all' nếu lấy toàn bộ."),
-                    "value": types.Schema(type=types.Type.STRING, description="Giá trị (VD: 'Phạm Hồng Minh'). Để trống nếu lấy toàn bộ."),
-                    "action": types.Schema(type=types.Type.STRING, enum=["list", "sum", "count"]),
-                },
-                required=["action"],
-            ),
-        ),
-        types.FunctionDeclaration(
-            name="query_transactions",
-            description="Truy vấn sổ chứng từ.",
-            parameters=types.Schema(
-                type=types.Type.OBJECT,
-                properties={
-                    "project_id": types.Schema(type=types.Type.STRING),
-                    "action": types.Schema(type=types.Type.STRING, enum=["list", "sum", "count"]),
-                },
-                required=["action"],
-            ),
-        ),
-        types.FunctionDeclaration(
-            name="search_knowledge",
-            description="Tìm kiếm quy chế, định mức trong tài liệu.",
-            parameters=types.Schema(
-                type=types.Type.OBJECT,
-                properties={"query": types.Schema(type=types.Type.STRING)},
-                required=["query"],
-            ),
-        ),
-    ]
-
-    # Nạp thêm các tool từ TOOL_REGISTRY (lương, lũy kế, xuất Excel) nếu có quyền
-    if can_finance:
-        for item in TOOL_REGISTRY.values():
-            all_tools.append(item["schema"])
-
-    # 2. Cấu hình Prompt
+def _build_system_prompt(role, own_profile, viewing_profile, allowed_profiles_count, can_finance, db_prompt):
     own_display = own_profile if own_profile else "(chưa đăng nhập / chưa có)"
     view_display = viewing_profile if viewing_profile else "(không rõ)"
-    sys_msg = (
-        f"{db_prompt}\n"
+
+    tool_list = """
+Các công cụ có sẵn (bạn YÊU CẦU gọi bằng cách trả về JSON action):
+- get_profile_data: lấy dữ liệu hồ sơ một người. Tham số: {"profile_name": "..."}
+- list_accessible_profiles: liệt kê hồ sơ user được phép. Tham số: {}
+- search_profiles: tìm hồ sơ theo điều kiện. Tham số: {"field": "...", "operator": "eq|like|...", "value": "..."}
+- query_finance_data: tra cứu đề tài/kinh phí. Tham số: {"field": "...", "operator": "...", "value": "...", "action": "list|sum|count"}
+- query_transactions: tra cứu sổ chứng từ. Tham số: {"project_id": "...", "action": "list|sum|count"}
+- search_knowledge: tra cứu quy định. Tham số: {"query": "..."}
+"""
+
+    if can_finance:
+        tool_list += "\n- Các công cụ từ TOOL_REGISTRY (lương, lũy kế, xuất Excel) nếu có quyền."
+
+    return (
+        f"{db_prompt}\n\n"
         f"--- BỐI CẢNH ---\n"
-        f"User: '{username or 'Khách'}', vai trò: {role}.\n"
+        f"User: vai trò {role}.\n"
         f"Profile riêng: {own_display}.\n"
-        f"Trang hồ sơ công khai đang mở trên màn hình: '{view_display}'.\n"
-        f"Quyền truy cập chi tiết: {len(allowed_profiles)} hồ sơ.\n\n"
-        f"--- QUY TẮC SUY LUẬN & TÌM KIẾM CHÉO (BẮT BUỘC) ---\n"
-        f"1. Chào hỏi/cảm ơn → trả lời trực tiếp, KHÔNG gọi tool.\n"
-        f"2. Khi hỏi 'người này' hoặc thông tin trang đang mở → gọi 'get_profile_data' với profile_name='{view_display}'.\n"
-        f"3. Khi hỏi thông tin chung về một cá nhân cụ thể:\n"
-        f"   - Bước 1: Gọi 'get_profile_data' (hoặc 'search_profiles' nếu tìm theo điều kiện).\n"
-        f"   - Bước 2: Nếu có dữ liệu hồ sơ → CHỈ tóm tắt ngắn gọn thông tin cơ bản (Họ tên, Học hàm/học vị, Chức vụ, Đơn vị công tác, Hướng nghiên cứu chính) trong 3–4 dòng. KHÔNG liệt kê dài dòng quá trình công tác hay toàn bộ đề tài (trừ khi user hỏi đích danh một mục cụ thể).\n"
-        f"   - Bước 3: Nếu không có hồ sơ trong hệ thống → gọi 'query_finance_data' (field='pi', operator='contains', value='Tên') để tìm chéo xem người đó có chủ nhiệm đề tài nào không.\n"
-        f"4. Khi hỏi 'danh sách đề tài' → gọi 'query_finance_data' (operator='all', action='list').\n"
-        f"5. Khi hỏi 'của tôi' → gọi 'get_profile_data' với profile_name='{own_profile}'.\n"
-        f"6. Hỏi về quy định, định mức → gọi 'search_knowledge'.\n"
-        f"7. BẢO MẬT: Nếu kết quả trả về có trường 'note' (cảnh báo bị giới hạn quyền), bạn PHẢI tuân thủ: Trả lời dựa trên dữ liệu đang có và thông báo thông tin riêng tư đã bị ẩn do chính sách bảo mật. KHÔNG ĐƯỢC bịa số liệu.\n"
-        f"8. QUY TẮC DỪNG: Nếu một công cụ trả về 'Không tìm thấy' hoặc danh sách rỗng, ĐỪNG GỌI LẠI CÔNG CỤ ĐÓ NỮA.\n"
-        f"--- Tiếng Việt, ngắn gọn, chính xác ---"
+        f"Trang hồ sơ đang mở: '{view_display}'.\n"
+        f"Số hồ sơ được phép: {allowed_profiles_count}.\n"
+        f"{tool_list}\n"
+        f"--- QUY TẮC ---\n"
+        f"1. Chào hỏi/cảm ơn → trả lời trực tiếp, không gọi công cụ.\n"
+        f"2. Hỏi về một người → gọi get_profile_data với tham số profile_name là tên người đó.\n"
+        f"3. Hỏi danh sách đề tài → gọi query_finance_data (action='list').\n"
+        f"4. Hỏi quy định → gọi search_knowledge.\n"
+        f"5. Trả về CHỈ duy nhất một đối tượng JSON:\n"
+        f"   {{\"action\": \"ten_cong_cu\", \"args\": {{...}}}}\n"
+        f"   hoặc\n"
+        f"   {{\"action\": \"final\", \"answer\": \"câu trả lời cuối cùng cho user\"}}\n"
+        f"6. Không được kèm markdown, không được giải thích thêm ngoài JSON.\n"
+        f"--- Tiếng Việt, ngắn gọn, chính xác ---\n"
     )
 
-    contents = []
-    if chat_history:
-        recent = chat_history[-6:]
-        lines = [f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in recent]
-        if lines:
-            contents.append(types.Content(role="user", parts=[types.Part(text="Lịch sử:\n" + "\n".join(lines))]))
-            contents.append(types.Content(role="model", parts=[types.Part(text="Đã hiểu.")]))
-    contents.append(types.Content(role="user", parts=[types.Part(text=user_q)]))
 
-    cfg = types.GenerateContentConfig(
-        tools=[types.Tool(function_declarations=all_tools)],
-        system_instruction=sys_msg,
-        thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL),
+def _build_intent_prompt(user_q: str) -> str:
+    """Phân loại ý định: chat | retrieve | file."""
+    return (
+        f"Phân loại ý định của câu hỏi sau vào một trong 3 nhãn: chat | retrieve | file\n\n"
+        f"- chat: chào hỏi, cảm ơn, hỏi chung về hệ thống, trò chuyện thường ngày, không cần tra cứu dữ liệu cá nhân.\n"
+        f"- retrieve: hỏi thông tin về một người cụ thể, danh sách đề tài, kinh phí, quy định, sổ chứng từ... cần tra cứu từ cơ sở dữ liệu.\n"
+        f"- file: yêu cầu đọc file CV/PDF/DOCX, trích xuất thông tin từ file, điền mẫu lý lịch, xuất file, xử lý dữ liệu người dùng gửi lên.\n\n"
+        f"Câu hỏi: {user_q}\n\n"
+        f"Trả về CHỈ một từ: chat, retrieve hoặc file. Không thêm giải thích."
+    )
+# ============================================================
+# LUỒNG 1: CHAT NHANH — không cần dữ liệu
+# ============================================================
+def _handle_chat(user_q: str, db_prompt: str, hist_text: str = "") -> str:
+    """Trả lời trực tiếp, không gọi Supabase, không gọi công cụ."""
+    prompt = (
+        f"{db_prompt}\n\n"
+        f"Bạn là trợ lý AI thân thiện, trả lời ngắn gọn bằng tiếng Việt.\n"
+        f"Không được tra cứu dữ liệu từ hệ thống, không được gọi công cụ nào.\n\n"
+        f"{hist_text}"
+        f"Câu hỏi: {user_q}\n\nTrả lời:"
+    )
+    try:
+        ans = _generate_with_retry(prompt)
+        return ans.strip() if ans else "Xin chào! Tôi có thể giúp gì cho bạn?"
+    except Exception:
+        return "Xin chào! Tôi có thể giúp gì cho bạn?"
+
+
+# ============================================================
+# LUỒNG 2: RETRIEVE — chỉ truy xuất dữ liệu từ Supabase
+# ============================================================
+def _list_accessible_profiles(allowed: list) -> list:
+    m = load_name_mapping()
+    profiles = _load_many_cached(list(allowed)) if allowed else {}
+    return [
+        {
+            "profile_key": k,
+            "display_name": m.get(k, {}).get("display_name", ""),
+            "has_data": bool(profiles.get(k)),
+        }
+        for k in allowed
+    ]
+
+
+def _search_profiles_dynamic(operator: str, field: str, value: str,
+                             allowed_profiles: list) -> list:
+    raw_results = filter_profiles_in_db(operator, f"data->>{field}", value)
+    results = []
+    for row in raw_results:
+        key = row["key"]
+        if key in allowed_profiles and key not in META_KEYS:
+            data = row["data"]
+            results.append({
+                "profile_key": key,
+                "ho_va_ten": detect_name_from_data(data) or key,
+                "matched_value": data.get(field),
+            })
+    return results
+
+
+def _handle_retrieve(action: str, args: dict, ctx_info: dict,
+                     all_existing: list, fallback_query: str = "") -> tuple:
+    """Xử lý các tác vụ truy xuất dữ liệu Supabase.
+    Trả về (result_dict, status_string)."""
+    role = ctx_info["role"]
+    own_profile = ctx_info["own_profile"]
+    allowed_profiles = ctx_info["allowed_profiles"]
+    can_finance = ctx_info["can_finance"]
+
+    result = {}
+    status = None
+
+    if action == "get_profile_data":
+        req = str(
+            args.get("profile_name", "")
+            or args.get("name", "")
+            or args.get("ho_ten", "")
+            or args.get("ho_va_ten", "")
+            or ""
+        ).strip()
+
+        if not req and fallback_query:
+            req = fallback_query.strip()
+
+        resolved, _, _, _ = resolve_profile(req, all_existing)
+        if not resolved and req:
+            req_low = req.lower().replace(" ", "")
+            safe_k = suggest_profile_key(req).lower()
+            for k in all_existing:
+                if k.lower() == req_low or k.lower() == safe_k:
+                    resolved = k
+                    break
+
+        if resolved:
+            d = load_user_profile(resolved)
+            if d:
+                status = "ok"
+                if role in ("admin", "manager") or (own_profile and resolved == own_profile):
+                    result = {"data": d, "profile_used": resolved}
+                else:
+                    safe_data = _filter_public_only(d)
+                    result = {
+                        "data": safe_data,
+                        "profile_used": resolved,
+                        "note": "Chỉ hiển thị các thông tin được cá nhân công khai (Public). Thông tin riêng tư đã bị ẩn.",
+                    }
+            else:
+                status = "no_data"
+                result = {"error": f"Hồ sơ '{resolved}' chưa có dữ liệu."}
+        else:
+            status = "not_found"
+            result = {
+                "error": f"Không tìm thấy hồ sơ '{req}' trong hệ thống.",
+                "note": "Hãy thử gọi query_finance_data để tìm kiếm chéo.",
+            }
+
+    elif action == "query_finance_data":
+        status = "data"
+        field = str(args.get("field", ""))
+        operator = str(args.get("operator", "all"))
+        value = str(args.get("value", ""))
+        action_val = str(args.get("action", "list"))
+
+        projects_raw, _, _ = load_finance_data()
+
+        if not can_finance:
+            res = query_finance_data_tool(field, operator, value, action_val, allowed_projects=None)
+            if action_val == "list" and isinstance(res, list):
+                safe_res = [
+                    {"project_id": r.get("id"), "name": r.get("name"), "pi": r.get("pi")}
+                    for r in res
+                ]
+                result = {
+                    "projects": safe_res,
+                    "note": "Số liệu kinh phí chi tiết đã bị ẩn do giới hạn quyền hạn.",
+                }
+            else:
+                result = {"error": "Bạn không có quyền xem thống kê tài chính chi tiết."}
+        else:
+            visible_pids = None if role in ("admin", "manager") else get_visible_project_ids(
+                type("Obj", (), {"role": "user", "own_profile": own_profile})(), projects_raw
+            )
+            result = query_finance_data_tool(field, operator, value, action_val, allowed_projects=visible_pids)
+
+    elif action == "list_accessible_profiles":
+        status = "list"
+        target_list = allowed_profiles if allowed_profiles else all_existing
+        result = _list_accessible_profiles(target_list)
+
+    elif action == "search_profiles":
+        status = "search"
+        target_list = allowed_profiles if allowed_profiles else all_existing
+        result = _search_profiles_dynamic(
+            str(args.get("operator", "eq")),
+            str(args.get("field", "")),
+            str(args.get("value", "")),
+            target_list,
+        )
+
+    elif action == "query_transactions":
+        if not can_finance:
+            result = {"error": "Bạn không có quyền truy cập sổ chứng từ."}
+        else:
+            status = "transaction"
+            projects_raw, _, _ = load_finance_data()
+            visible_pids = None if role in ("admin", "manager") else get_visible_project_ids(
+                type("Obj", (), {"role": "user", "own_profile": own_profile})(), projects_raw
+            )
+            result = query_transactions_tool(
+                project_id=str(args.get("project_id", "")),
+                action=str(args.get("action", "list")),
+                allowed_projects=visible_pids,
+            )
+
+    elif action == "search_knowledge":
+        status = "knowledge"
+        result = search_knowledge_base(str(args.get("query", "")), module="finance")
+
+    elif action in TOOL_REGISTRY:
+        if not can_finance:
+            result = {"error": "Bạn không có quyền sử dụng công cụ tính lương/tài chính."}
+        else:
+            status = "data"
+            reg_ctx = {
+                "load_profile": load_user_profile,
+                "allowed_profiles": allowed_profiles,
+                "get_name": lambda k: (
+                    load_name_mapping().get(k, {}).get("display_name")
+                    or detect_name_from_data(load_user_profile(k))
+                    or k
+                ),
+            }
+            raw_res = TOOL_REGISTRY[action]["func"](dict(args), reg_ctx)
+            if isinstance(raw_res, dict) and "_excel_bytes" in raw_res:
+                st.session_state["_chat_excel_download"] = {
+                    "bytes": raw_res.pop("_excel_bytes"),
+                    "filename": f"{raw_res.get('download_token', 'bang_luong')}.xlsx",
+                }
+            result = raw_res
+
+    else:
+        result = {"error": f"Không nhận diện công cụ: {action}"}
+        status = "error"
+
+    return result, status
+
+
+def _synthesize_retrieve_answer(user_q: str, action: str, result: dict,
+                                ctx_info: dict, db_prompt: str,
+                                hist_text: str = "") -> str:
+    """Gọi AI lần thứ 2 để tổng hợp câu trả lời từ kết quả công cụ."""
+    role = ctx_info["role"]
+    own_profile = ctx_info["own_profile"]
+    viewing_profile = ctx_info["viewing_profile"]
+    allowed_profiles = ctx_info["allowed_profiles"]
+    can_finance = ctx_info["can_finance"]
+
+    sys_prompt = _build_system_prompt(
+        role, own_profile, viewing_profile, len(allowed_profiles), can_finance, db_prompt
     )
 
-    used, p_used, status = False, None, None
+    follow_up_prompt = (
+        f"{sys_prompt}\n\n"
+        f"{hist_text}"
+        f"Kết quả từ công cụ '{action}':\n{json.dumps(result, ensure_ascii=False)}\n\n"
+        f"Câu hỏi gốc: {user_q}\n\n"
+        f"Hãy viết câu trả lời cuối cùng cho user dựa trên kết quả trên. Trả về JSON: "
+        f"{json.dumps({'action': 'final', 'answer': '...'})}"
+    )
+
+    try:
+        final_text = _generate_with_retry(follow_up_prompt)
+        if final_text:
+            cleaned = final_text.strip()
+            if cleaned.startswith("```json"):
+                cleaned = cleaned[7:]
+            if cleaned.startswith("```"):
+                cleaned = cleaned[3:]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3]
+            cleaned = cleaned.strip()
+            try:
+                final_data = json.loads(cleaned)
+                final_answer = final_data.get("answer") or (final_data.get("args") or {}).get("answer") or ""
+                if final_answer:
+                    return final_answer.strip()
+            except Exception:
+                pass
+            return cleaned
+    except Exception:
+        pass
+
+    return json.dumps(result, ensure_ascii=False)
+# ============================================================
+# LUỒNG 3: FILE — xử lý file người dùng gửi (docx/xlsx/pdf)
+# ============================================================
+def _extract_file_text(file_bytes: bytes, filename: str) -> str:
+    """Trích xuất văn bản thô từ file docx hoặc pdf."""
+    return extract_profile_document(file_bytes, filename)
+
+
+def _build_file_extract_prompt(raw_text: str, filename: str) -> str:
+    """Prompt yêu cầu AI trích xuất thông tin từ file thành JSON chuẩn."""
+    return (
+        f"Trích xuất TOÀN BỘ thông tin từ file '{filename}' thành JSON "
+        f"(key viết thường, gạch dưới, tiếng Việt không dấu). Trường nào không có thì để null hoặc bỏ qua.\n\n"
+        f"Bắt buộc có:\n"
+        f"- 'ho_va_ten', 'hoc_ham', 'hoc_vi', 'chuc_vu', 'don_vi_cong_tac', 'ngay_sinh' (DD/MM/YYYY) nếu có.\n"
+        f"- 'huong_nghien_cuu': đoạn mô tả hướng nghiên cứu chính nếu có.\n"
+        f"- 'cong_bo': danh sách mảng các công trình/bài báo khoa học "
+        f'(mỗi phần tử là dict {{"ten_bai_bao", "tac_gia", "tap_chi", "nam"}}).\n'
+        f"- 'de_tai': danh sách mảng các đề tài nghiên cứu "
+        f'(mỗi phần tử là dict {{"ten_de_tai", "ma_so", "vai_tro", "thoi_gian", "trang_thai"}}).\n\n'
+        f"Văn bản:\n'''{smart_truncate(raw_text)}'''\n"
+    )
+
+
+def _match_profile_to_supabase(extracted: dict, allowed_profiles: list, username: str):
+    """So sánh dữ liệu trích xuất từ file với hồ sơ có sẵn trên Supabase."""
+    if not allowed_profiles:
+        return None, "no_allowed", {}
+
+    matches = find_identity_matches(extracted, allowed_profiles)
+    if matches:
+        best_key, confidence = matches[0]
+        return best_key, confidence, {}
+
+    name = extracted.get("ho_va_ten") or extracted.get("ho_ten") or extracted.get("full_name")
+    if name:
+        for k in allowed_profiles:
+            d = load_user_profile(k)
+            if not d:
+                continue
+            existing_name = detect_name_from_data(d)
+            if existing_name and name.lower().strip() == existing_name.lower().strip():
+                return k, "weak_name_only", {}
+
+    return None, "no_match", {}
+
+
+def _handle_file(user_q: str, file_bytes: bytes, filename: str,
+                 ctx_info: dict, db_prompt: str) -> tuple:
+    """Xử lý file người dùng gửi: trích xuất → so sánh Supabase → cập nhật hồ sơ."""
+    username = ctx_info["username"]
+    allowed_profiles = ctx_info["allowed_profiles"]
+    role = ctx_info["role"]
+    own_profile = ctx_info["own_profile"]
+
+    used = True
+    p_used = None
+
+    try:
+        raw_text = _extract_file_text(file_bytes, filename)
+    except Exception as e:
+        return (f"❌ Không đọc được file '{filename}': {e}", used, p_used, "error")
+
+    if not raw_text or len(raw_text.strip()) < 10:
+        return ("❌ File không có nội dung văn bản hoặc nội dung quá ít.", used, p_used, "error")
+
+    prompt = _build_file_extract_prompt(raw_text, filename)
+    try:
+        extracted_text = _generate_with_retry(prompt)
+        if not extracted_text:
+            return ("❌ AI không trích xuất được dữ liệu từ file.", used, p_used, "error")
+        cleaned = extracted_text.strip()
+        if cleaned.startswith("```json"):
+            cleaned = cleaned[7:]
+        if cleaned.startswith("```"):
+            cleaned = cleaned[3:]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+        cleaned = cleaned.strip()
+        extracted = json.loads(cleaned)
+    except Exception as e:
+        return (f"❌ Lỗi phân tích file: {e}", used, p_used, "error")
+
+    if not extracted:
+        return ("❌ Không trích xuất được thông tin nào từ file.", used, p_used, "error")
+
+    matched_key, confidence, _ = _match_profile_to_supabase(
+        extracted, allowed_profiles, username
+    )
+
+    can_write = (
+        role in ("admin", "manager")
+        or (own_profile and matched_key == own_profile)
+    )
+
+    if matched_key and can_write:
+        final, changes = merge_and_save(matched_key, extracted, overwrite=False)
+        p_used = matched_key
+        status = "updated"
+        answer = (
+            f"✅ Đã phân tích file '{filename}' và cập nhật hồ sơ **{matched_key}**\n"
+            f"• Độ tin cậy khớp: {confidence}\n"
+            f"• Trường mới thêm: {len(changes.get('added', {}))}\n"
+            f"• Trường cập nhật: {len(changes.get('updated', {}))}\n"
+            f"• Trường nối thêm: {len(changes.get('appended', {}))}\n\n"
+            f"Bạn có thể xem chi tiết hồ sơ này ở trang hồ sơ cá nhân."
+        )
+        return (answer, used, p_used, status)
+
+    elif matched_key and not can_write:
+        p_used = matched_key
+        status = "no_permission"
+        answer = (
+            f"⚠️ File '{filename}' khớp với hồ sơ **{matched_key}**, "
+            f"nhưng bạn không có quyền ghi vào hồ sơ này.\n"
+            f"Vui lòng liên hệ Admin hoặc Manager để được cập nhật."
+        )
+        return (answer, used, p_used, status)
+
+    else:
+        status = "no_match"
+        answer = (
+            f"📄 Đã trích xuất được **{len(extracted)} trường** từ file '{filename}'.\n"
+            f"Tuy nhiên, không khớp với bất kỳ hồ sơ nào trong hệ thống mà bạn có quyền truy cập.\n\n"
+            f"**Dữ liệu trích xuất:**\n"
+            f"{json.dumps(extracted, ensure_ascii=False, indent=2)}\n\n"
+            f"Nếu bạn là Admin/Manager, có thể tạo hồ sơ mới hoặc liên hệ quản trị để gán dữ liệu này."
+        )
+        return (answer, used, p_used, status)
+# ============================================================
+# ĐIỂM VÀO CHÍNH
+# ============================================================
+def chat_with_ai(user_q, allowed_profiles, username, user_record,
+                 chat_history=None, viewing_profile=None,
+                 file_bytes=None, filename=None):
+    """
+    Phân loại ý định rồi điều phối sang luồng xử lý tương ứng.
+    Trả về: (answer, used, p_used, status).
+    """
+    role = user_record.get("role", "user") if user_record else "user"
+    own_profile = get_own_profile(user_record or {}, username) if username else None
+    can_finance = role in ("admin", "manager") or bool(
+        (user_record or {}).get("allowed_tools")
+    )
+    db_prompt = get_ai_settings().get("chat_system_prompt", "")
+    ctx_info = {
+        "role": role,
+        "own_profile": own_profile,
+        "viewing_profile": viewing_profile,
+        "allowed_profiles": allowed_profiles or [],
+        "can_finance": can_finance,
+        "username": username,
+    }
     all_existing = get_all_existing_profiles()
 
-    for _ in range(3):
-        resp = _generate_with_retry(cfg, contents)
-        if not resp.candidates:
-            return "Xin lỗi, không xử lý được.", used, p_used, status
+    # ====== XỬ LÝ LỆNH ADMIN QUA CHAT ======
+    admin_result = _try_admin_command(user_q, role)
+    if admin_result is not None:
+        return admin_result, True, None, "admin_cmd"
 
-        if resp.function_calls:
+    # ====== LUỒNG 3: XỬ LÝ FILE UPLOAD ======
+    if file_bytes and filename:
+        return _handle_file(user_q, file_bytes, filename, ctx_info, db_prompt)
+
+    hist_text = ""
+    if chat_history:
+        recent = chat_history[-6:]
+        lines = [f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
+                 for m in recent]
+        if lines:
+            hist_text = "Lịch sử gần đây:\n" + "\n".join(lines) + "\n\n"
+
+    try:
+        raw_intent = _generate_with_retry(_build_intent_prompt(user_q))
+        intent = (raw_intent or "chat").strip().lower()
+    except Exception:
+        intent = "chat"
+
+    # ====== LUỒNG 1: CHAT THƯỜNG ======
+    if "chat" in intent:
+        ans = _handle_chat(user_q, db_prompt, hist_text)
+        return ans, False, None, "chat"
+
+    # ====== LUỒNG 2: RETRIEVE (truy xuất Supabase) ======
+    if any(k in intent for k in ("retrieve", "file")):
+        sys_prompt = _build_system_prompt(
+            role, own_profile, viewing_profile, len(allowed_profiles or []),
+            can_finance, db_prompt
+        )
+
+        full_prompt = (
+            f"{sys_prompt}\n\n"
+            f"{hist_text}"
+            f"Câu hỏi hiện tại: {user_q}\n\n"
+            f"Trả về JSON action:"
+        )
+
+        for _ in range(3):
+            try:
+                resp_text = _generate_with_retry(full_prompt)
+            except Exception:
+                return "Xin lỗi, không xử lý được.", False, None, "error"
+
+            if not resp_text:
+                return "Xin lỗi, không xử lý được.", False, None, "error"
+
+            action = None
+            args = {}
+            data = {}
+            try:
+                cleaned = resp_text.strip()
+                if cleaned.startswith("```json"):
+                    cleaned = cleaned[7:]
+                if cleaned.startswith("```"):
+                    cleaned = cleaned[3:]
+                if cleaned.endswith("```"):
+                    cleaned = cleaned[:-3]
+                cleaned = cleaned.strip()
+                data = json.loads(cleaned)
+                action = data.get("action")
+                args = data.get("args", {}) or {}
+            except Exception:
+                return (resp_text or "Xin lỗi.").strip(), False, None, "chat"
+
+            if action == "final":
+                ans = data.get("answer") or args.get("answer") or "Xin lỗi."
+                return ans.strip(), False, None, "final"
+
             used = True
-            contents.append(resp.candidates[0].content)
-            parts = []
-            for fc in resp.function_calls:
-                if fc.name == "get_profile_data":
-                    req = str(fc.args.get("profile_name", "")).strip()
-                    resolved, _, _, _ = resolve_profile(req, all_existing)
-                    if not resolved:
-                        req_low = req.lower().replace(" ", "")
-                        safe_k = suggest_profile_key(req).lower()
-                        for k in all_existing:
-                            if k.lower() == req_low or k.lower() == safe_k:
-                                resolved = k
-                                break
+            result, status = _handle_retrieve(
+                action, args, ctx_info, all_existing, fallback_query=user_q
+            )
 
-                    if resolved:
-                        p_used = resolved
-                        d = load_user_profile(resolved)
-                        if d:
-                            status = "ok"
-                            if role in ("admin", "manager") or (own_profile and resolved == own_profile):
-                                result = {"data": d}
-                            else:
-                                safe_data = _filter_public_only(d)
-                                result = {
-                                    "data": safe_data,
-                                    "note": "Chỉ hiển thị các thông tin được cá nhân công khai (Public). Thông tin riêng tư đã bị ẩn.",
-                                }
-                        else:
-                            status = "no_data"
-                            result = {"error": f"Hồ sơ '{resolved}' chưa có dữ liệu."}
-                    else:
-                        status = "not_found"
-                        result = {
-                            "error": "Không tìm thấy hồ sơ này trong hệ thống.",
-                            "note": "Hãy thử gọi query_finance_data để tìm kiếm chéo.",
-                        }
+            final_answer = _synthesize_retrieve_answer(
+                user_q, action, result, ctx_info, db_prompt, hist_text
+            )
+            p_used = None
+            if isinstance(result, dict):
+                p_used = result.get("profile_used") or (
+                    result.get("data", {}).get("profile_key")
+                    if isinstance(result.get("data"), dict) else None
+                )
+            return final_answer, used, p_used, status
 
-                elif fc.name == "query_finance_data":
-                    status = "data"
-                    field = str(fc.args.get("field", ""))
-                    operator = str(fc.args.get("operator", "all"))
-                    value = str(fc.args.get("value", ""))
-                    action = str(fc.args.get("action", "list"))
+    ans = _handle_chat(user_q, db_prompt, hist_text)
+    return ans, False, None, "chat"
 
-                    projects_raw, _, _ = load_finance_data()
 
-                    if not can_finance:
-                        res = query_finance_data_tool(field, operator, value, action, allowed_projects=None)
-                        if action == "list" and isinstance(res, list):
-                            safe_res = [{"project_id": r.get("id"), "name": r.get("name"), "pi": r.get("pi")} for r in res]
-                            result = {
-                                "projects": safe_res,
-                                "note": "Số liệu kinh phí chi tiết đã bị ẩn do giới hạn quyền hạn.",
-                            }
-                        else:
-                            result = {"error": "Bạn không có quyền xem thống kê tài chính chi tiết."}
-                    else:
-                        visible_pids = None if role in ("admin", "manager") else get_visible_project_ids(
-                            type("Obj", (), {"role": "user", "own_profile": own_profile})(), projects_raw
-                        )
-                        result = query_finance_data_tool(field, operator, value, action, allowed_projects=visible_pids)
+# ============================================================
+# XỬ LÝ LỆNH ADMIN QUA CHAT
+# ============================================================
+def _try_admin_command(user_q: str, role: str) -> str | None:
+    """
+    Phát hiện và thực thi lệnh admin từ chat.
+    Hỗ trợ mẫu: "thêm user <tên> pass <mật khẩu>"
+    """
+    q = user_q.strip()
 
-                elif fc.name == "list_accessible_profiles":
-                    status = "list"
-                    target_list = allowed_profiles if allowed_profiles else all_existing
-                    result = list_accessible_profiles(target_list)
+    if role != "admin":
+        cmd_patterns = [
+            _re.compile(r"thêm\s+user\s+\S+\s+pass\s+\S+", _re.IGNORECASE),
+            _re.compile(r"tạo\s+user\s+\S+\s+mật\s+khẩu\s+\S+", _re.IGNORECASE),
+            _re.compile(r"add\s+user\s+\S+\s+password\s+\S+", _re.IGNORECASE),
+        ]
+        for pat in cmd_patterns:
+            if pat.search(q):
+                return "❌ Bạn không có quyền thực hiện lệnh này. Vui lòng liên hệ Admin."
+        return None
 
-                elif fc.name == "search_profiles":
-                    status = "search"
-                    target_list = allowed_profiles if allowed_profiles else all_existing
-                    result = search_profiles_dynamic(
-                        str(fc.args.get("operator", "eq")),
-                        str(fc.args.get("field", "")),
-                        str(fc.args.get("value", "")),
-                        target_list,
-                    )
+    patterns = [
+        _re.compile(r"thêm\s+user\s+(\S+)\s+pass\s+(\S+)", _re.IGNORECASE),
+        _re.compile(r"tạo\s+user\s+(\S+)\s+mật\s+khẩu\s+(\S+)", _re.IGNORECASE),
+        _re.compile(r"add\s+user\s+(\S+)\s+password\s+(\S+)", _re.IGNORECASE),
+    ]
 
-                elif fc.name == "query_transactions":
-                    if not can_finance:
-                        result = {"error": "Bạn không có quyền truy cập sổ chứng từ."}
-                    else:
-                        status = "transaction"
-                        projects_raw, _, _ = load_finance_data()
-                        visible_pids = None if role in ("admin", "manager") else get_visible_project_ids(
-                            type("Obj", (), {"role": "user", "own_profile": own_profile})(), projects_raw
-                        )
-                        result = query_transactions_tool(
-                            project_id=str(fc.args.get("project_id", "")),
-                            action=str(fc.args.get("action", "list")),
-                            allowed_projects=visible_pids,
-                        )
+    for pat in patterns:
+        m = pat.search(q)
+        if m:
+            new_user = m.group(1)
+            new_pw = m.group(2)
+            if not _re.match(r"^[a-zA-Z0-9_]+$", new_user):
+                return f"❌ Tên user '{new_user}' không hợp lệ. Chỉ được chứa chữ, số và gạch dưới."
+            if len(new_user) < 3:
+                return f"❌ Tên user '{new_user}' quá ngắn (tối thiểu 3 ký tự)."
+            ok, msg = admin_create_user(new_user, new_pw, role="user")
+            if ok:
+                return f"✅ Đã tạo user '{new_user}' thành công (vai trò: user)."
+            else:
+                return f"❌ {msg}"
 
-                elif fc.name == "search_knowledge":
-                    status = "knowledge"
-                    result = search_knowledge_base(str(fc.args.get("query", "")), module="finance")
-
-                elif fc.name in TOOL_REGISTRY:
-                    if not can_finance:
-                        result = {"error": "Bạn không có quyền sử dụng công cụ tính lương/tài chính."}
-                    else:
-                        status = "data"
-                        reg_ctx = _build_registry_ctx(allowed_profiles)
-                        raw_res = TOOL_REGISTRY[fc.name]["func"](dict(fc.args), reg_ctx)
-                        if isinstance(raw_res, dict) and "_excel_bytes" in raw_res:
-                            st.session_state["_chat_excel_download"] = {
-                                "bytes": raw_res.pop("_excel_bytes"),
-                                "filename": f"{raw_res.get('download_token', 'bang_luong')}.xlsx",
-                            }
-                        result = raw_res
-                else:
-                    result = {"error": "Unknown tool"}
-
-                parts.append(types.Part.from_function_response(name=fc.name, response={"result": result}))
-            contents.append(types.Content(role="user", parts=parts))
-        else:
-            answer = (resp.text or "").strip()
-            return answer or "Xin lỗi.", used, p_used, status
-
-    return "Tôi đã thử tìm kiếm nhưng không có kết quả phù hợp. Bạn có thể hỏi rõ hơn được không?", used, p_used, status
+    return None

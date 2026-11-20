@@ -18,6 +18,8 @@ import streamlit as st
 
 from supabase_adapter import load_json_from_db, save_json_to_db
 from nvidia_client import call_ai_with_fallback
+from storage import load_user_profile, load_name_mapping
+from security import detect_name_from_data
 
 SKILL_REGISTRY_KEY = "hermes_skills_registry"
 
@@ -131,37 +133,19 @@ def can_use_skill(skill_name: str, username: str) -> bool:
 # Sinh skill tự động bằng Gemini API
 # ============================================================
 def _call_gemini_json(prompt: str) -> str | None:
-    """Gọi Gemini API để sinh JSON. Trả về chuỗi JSON text hoặc None nếu lỗi."""
+    """
+    Gọi NVIDIA API để sinh JSON skill. Giữ tên _call_gemini_json để tương thích.
+    """
     try:
-        from google import genai
-        from google.genai import types
+        from nvidia_client import call_nvidia_json
     except Exception:
         return None
 
-    api_key = ""
     try:
-        api_key = st.secrets.get("GEMINI_API_KEY", "")
+        text = call_nvidia_json(prompt)
+        return text
     except Exception:
-        pass
-    if not api_key:
-        api_key = os.environ.get("GEMINI_API_KEY", "")
-    if not api_key:
         return None
-
-    client = genai.Client(api_key=api_key)
-    cfg = types.GenerateContentConfig(
-        thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW),
-        response_mime_type="application/json",
-    )
-    for model_name in ("gemini-3.8-flash", "gemini-3.5-flash-lite"):
-        try:
-            resp = client.models.generate_content(
-                model=model_name, contents=prompt, config=cfg
-            )
-            return resp.text
-        except Exception:
-            continue
-    return None
 
 
 def _clean_json_text(text: str) -> str:
@@ -346,3 +330,120 @@ def ensure_statistics_skill() -> bool:
         code=STATISTICS_SKILL_CODE,
         allowed_users=["admin"],
     )
+
+
+# ============================================================
+# SKILL TREE CONFIG (cây thư mục skill riêng cho mỗi user)
+# ============================================================
+SKILL_TREE_PREFIX = "skill_tree_"
+
+def get_skill_tree_config(username: str) -> dict:
+    """Lấy cấu hình cây skill của một user. Trả về dict {folder_name: [skill_names]}."""
+    if not username:
+        return {}
+    return load_json_from_db(f"{SKILL_TREE_PREFIX}{username}") or {}
+
+def save_skill_tree_config(username: str, tree: dict) -> bool:
+    """Lưu cấu hình cây skill của một user lên Supabase."""
+    if not username:
+        return False
+    return save_json_to_db(f"{SKILL_TREE_PREFIX}{username}", tree)
+
+def add_skill_to_user_tree(username: str, skill_name: str, folder: str = "Khác") -> bool:
+    """Thêm một skill vào cây thư mục của user. Mặc định vào folder 'Khác'."""
+    if not username or not skill_name:
+        return False
+    tree = get_skill_tree_config(username)
+    if folder not in tree:
+        tree[folder] = []
+    if skill_name not in tree[folder]:
+        tree[folder].append(skill_name)
+    return save_skill_tree_config(username, tree)
+
+def remove_skill_from_user_tree(username: str, skill_name: str) -> bool:
+    """Xóa skill khỏi cây thư mục của user."""
+    if not username or not skill_name:
+        return False
+    tree = get_skill_tree_config(username)
+    for folder, skills in tree.items():
+        if skill_name in skills:
+            skills.remove(skill_name)
+            if not skills:
+                del tree[folder]
+            break
+    return save_skill_tree_config(username, tree)
+
+def get_user_skill_tree(username: str) -> list[dict]:
+    """
+    Trả về danh sách skill có quyền dùng của user, đã sắp xếp theo cây thư mục.
+    Mỗi phần tử: {"folder": str, "skills": [{"name": str, "description": str}]}
+    """
+    if not username:
+        return []
+    tree = get_skill_tree_config(username)
+    reg = load_skills_registry()
+    result = []
+    for folder, skill_names in tree.items():
+        skills_info = []
+        for sn in skill_names:
+            skill = reg.get(sn)
+            if skill and username in skill.get("allowed_users", []):
+                skills_info.append({
+                    "name": sn,
+                    "description": skill.get("description", ""),
+                })
+        if skills_info:
+            result.append({"folder": folder, "skills": skills_info})
+    return result
+
+
+# ============================================================
+# CHẠY SKILL TỪ SIDEBAR
+# ============================================================
+def run_skill(skill_name: str, args: dict, username: str, allowed_profiles: list) -> dict:
+    """
+    Chạy một skill với tham số args.
+    Trả về dict kết quả (bao gồm _excel_bytes nếu có).
+    """
+    reg = load_skills_registry()
+    skill = reg.get(skill_name)
+    if not skill:
+        return {"error": f"Không tìm thấy skill '{skill_name}'."}
+
+    if username not in skill.get("allowed_users", []):
+        return {"error": f"Bạn không có quyền chạy skill '{skill_name}'."}
+
+    code = skill.get("code", "")
+    if not code:
+        return {"error": f"Skill '{skill_name}' không có mã thực thi."}
+
+    # Tạo ctx cho skill
+    def load_profile(key):
+        return load_user_profile(key)
+
+    def get_name(key):
+        m = load_name_mapping()
+        return m.get(key, {}).get("display_name") or detect_name_from_data(load_user_profile(key)) or key
+
+    ctx = {
+        "load_profile": load_profile,
+        "get_name": get_name,
+        "allowed_profiles": allowed_profiles,
+    }
+
+    # Thực thi code skill trong namespace riêng
+    namespace = {}
+    try:
+        exec(code, namespace)
+    except Exception as e:
+        return {"error": f"Lỗi khi nạp mã skill: {e}"}
+
+    execute_fn = namespace.get("execute")
+    if not execute_fn or not callable(execute_fn):
+        return {"error": f"Skill '{skill_name}' không có hàm execute(args, ctx)."}
+
+    try:
+        result = execute_fn(args, ctx)
+        return result if isinstance(result, dict) else {"result": result}
+    except Exception as e:
+        return {"error": f"Lỗi khi chạy skill: {e}"}

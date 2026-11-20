@@ -26,7 +26,7 @@ from ui.workspace_ui import render_workspace_module
 from ui.user_admin_ui import render_user_admin_page
 from ui.chat_ui import render_chat_section
 from ui.skill_ui import render_skill_page
-from skill_manager import ensure_statistics_skill
+from skill_manager import ensure_statistics_skill, run_skill
 from ui.journal_admin_ui import render_journal_admin_page
 
 st.set_page_config(
@@ -37,8 +37,12 @@ st.set_page_config(
 
 # CSS cố định Chatbox bên phải luôn nổi và làm đẹp link hồ sơ
 st.markdown("""<style>
-    html, body, [class*="css"] { font-size: 17.5px !important; }
-    .stMarkdown p, .stMarkdown li { font-size: 1.05rem !important; line-height: 1.65 !important; }
+    html, body, [class*="css"] { font-size: 20px !important; }
+    .stMarkdown p, .stMarkdown li { font-size: 1.15rem !important; line-height: 1.7 !important; }
+    .stTextInput input { font-size: 18px !important; padding: 10px 12px !important; }
+    .stButton button { font-size: 17px !important; padding: 8px 14px !important; }
+    .stCaption, .stCaption p { font-size: 15px !important; }
+    .stFileUpload > div > button { font-size: 16px !important; }
     div[data-testid="stHorizontalBlock"] > div:nth-child(2) {
         position: sticky;
         top: 3.5rem;
@@ -92,12 +96,16 @@ ctx = UserContext(
     is_power=(role_key in ("admin", "manager")),
 )
 
-# Phát hiện sự kiện vừa Sign In -> Tự động đưa về trang cá nhân của user đó
+# Phát hiện sự kiện vừa Sign In -> Tự động đưa về trang phù hợp
 prev_user = st.session_state.get("_prev_logged_user", "")
 if is_logged_in and username != prev_user:
     st.session_state["_prev_logged_user"] = username
-    if ctx.own_profile:
-        st.session_state.viewing_profile = ctx.own_profile
+    # Admin mở trang làm việc gần nhất, user thường mở trang cá nhân
+    if ctx.role == "admin":
+        last_mode = st.session_state.get(f"last_view_mode_{username}", "workspace")
+        st.session_state.view_mode = last_mode
+    else:
+        st.session_state.viewing_profile = ctx.own_profile or ""
         st.session_state.view_mode = "public_profile"
 elif not is_logged_in and prev_user:
     st.session_state["_prev_logged_user"] = ""
@@ -113,6 +121,11 @@ if not st.session_state.get("viewing_profile"):
 # 3. CONTROL BÊN TRÁI (SIDEBAR)
 # =========================================================
 render_sidebar(ctx)
+
+# Lưu last_view_mode cho admin (để khôi phục khi đăng nhập lại)
+if is_logged_in and ctx.role == "admin":
+    current_mode = st.session_state.get("view_mode", "public_profile")
+    st.session_state[f"last_view_mode_{username}"] = current_mode
 
 # =========================================================
 # 4. KHUNG CHÍNH (GIỮA) + CHATBOX CỐ ĐỊNH (BÊN PHẢI)
@@ -143,6 +156,8 @@ with col_main:
             st.error("🚫 Chỉ quản trị viên mới có quyền truy cập trang này.")
     elif mode == "skill":
         render_skill_page(ctx)
+    elif mode == "skill_run":
+        _render_skill_run_page(ctx)
     elif mode == "journal_admin":
         if ctx.role == "admin":
             render_journal_admin_page(ctx)
@@ -152,3 +167,79 @@ with col_main:
 with col_chat:
     with st.container(height=680, border=True):
         render_chat_section(ctx)
+
+
+# ============================================================
+# TRANG CHẠY SKILL TỪ SIDEBAR
+# ============================================================
+def _render_skill_run_page(ctx: UserContext):
+    """Hiển thị form nhập tham số và chạy skill được chọn từ sidebar."""
+    skill_name = st.session_state.get("_run_skill_name", "")
+    skill_desc = st.session_state.get("_run_skill_description", "")
+
+    if not skill_name:
+        st.error("Không tìm thấy skill để chạy.")
+        if st.button("⬅️ Quay lại"):
+            st.session_state.view_mode = "public_profile"
+            st.rerun()
+        return
+
+    st.title(f"⚙️ Chạy Skill: {skill_name}")
+    if skill_desc:
+        st.caption(skill_desc)
+
+    st.markdown("---")
+
+    # Form nhập tham số (JSON)
+    with st.form("form_run_skill"):
+        args_text = st.text_area(
+            "Tham số (JSON)",
+            value="{}",
+            height=150,
+            help="Nhập tham số cho skill dưới dạng JSON, ví dụ: {\"from_year\": 2020, \"to_year\": 2025}",
+        )
+        c1, c2 = st.columns(2)
+        with c1:
+            run_submit = st.form_submit_button("🚀 Chạy Skill", type="primary", width='stretch')
+        with c2:
+            back_submit = st.form_submit_button("⬅️ Quay lại", width='stretch')
+
+    if back_submit:
+        st.session_state.view_mode = "public_profile"
+        st.session_state.pop("_run_skill_name", None)
+        st.session_state.pop("_run_skill_description", None)
+        st.rerun()
+
+    if run_submit:
+        try:
+            import json as _json
+            args = _json.loads(args_text) if args_text.strip() else {}
+        except Exception as e:
+            st.error(f"❌ JSON không hợp lệ: {e}")
+            return
+
+        with st.spinner("⏳ Đang chạy skill..."):
+            result = run_skill(
+                skill_name=skill_name,
+                args=args,
+                username=ctx.username,
+                allowed_profiles=ctx.allowed_profiles,
+            )
+
+        if "error" in result:
+            st.error(f"❌ {result['error']}")
+        else:
+            st.success("✅ Đã chạy skill thành công!")
+
+            # Nếu có file Excel để tải xuống
+            if "_excel_bytes" in result:
+                st.download_button(
+                    label="📥 Tải file Excel",
+                    data=result.pop("_excel_bytes"),
+                    file_name=f"{result.get('download_token', 'skill_result')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.document",
+                    width='stretch',
+                )
+
+            # Hiển thị kết quả
+            st.json(result)
