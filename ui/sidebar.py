@@ -110,3 +110,6 @@ def render_sidebar(ctx: UserContext):
                 ):
                     st.session_state.view_mode = "journal_admin"
                     st.rerun()
+
+    st.markdown("---")
+    st.caption("Phiên bản: **v2.0.1** · Hệ Thống Hồ Sơ & AI Agent")

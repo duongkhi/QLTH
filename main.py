@@ -104,7 +104,9 @@ elif not is_logged_in and prev_user:
 
 # Khởi tạo hồ sơ mặc định nếu chưa có
 if not st.session_state.get("viewing_profile"):
-    all_p = get_all_existing_profiles()
+    if "all_profiles_cache" not in st.session_state:
+        st.session_state["all_profiles_cache"] = get_all_existing_profiles()
+    all_p = st.session_state["all_profiles_cache"]
     st.session_state.viewing_profile = ctx.own_profile or (all_p[0] if all_p else "")
 
 # =========================================================

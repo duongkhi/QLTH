@@ -1,8 +1,8 @@
 # ui/chat_ui.py
 import streamlit as st
 from config import UserContext
-from chat_agent import chat_with_ai, load_chat_history, save_chat_history
-from storage import write_system_log, load_user_profile
+from chat_agent import chat_with_ai
+from storage import write_system_log
 from ui.profile_ui import linkify_profile_names
 
 
@@ -38,7 +38,12 @@ def render_chat_caption(msg, i):
 
 @st.fragment
 def _render_chat_fragment(username: str, role: str, allowed_profiles: list, user_record: dict):
-    """Khung chat bên phải: chỉ rerun fragment này khi nhắn tin, không load lại toàn bộ trang."""
+    """Khung chat bên phải: chỉ rerun fragment này khi nhắn tin, không load lại toàn bộ trang.
+
+    Lịch sử tin nhắn chỉ lưu trong session_state của máy người dùng (không ghi lên database).
+    Mỗi session mới bắt đầu từ khung chat trống, nhưng vẫn truyền các tin nhắn trong session
+    hiện tại làm ngữ cảnh cho AI trả lời phù hợp.
+    """
     c_head, c_clr = st.columns([3.5, 1.5])
     with c_head:
         st.markdown("#### 💬 Trợ lý AI")
@@ -48,13 +53,13 @@ def _render_chat_fragment(username: str, role: str, allowed_profiles: list, user
             cache_key = f"chat_hist_{username or 'guest'}"
             st.session_state[cache_key] = []
             st.session_state.pop("_chat_excel_download", None)
-            if username:
-                save_chat_history(username, [])
             st.rerun()
 
     cache_key = f"chat_hist_{username or 'guest'}"
     if cache_key not in st.session_state:
-        st.session_state[cache_key] = load_chat_history(username) if username else []
+        # Mỗi session mới: KHÔNG load lịch sử cũ từ database
+        # Chỉ khởi tạo danh sách rỗng trong bộ nhớ máy người dùng
+        st.session_state[cache_key] = []
 
     chat_box = st.container(height=450, border=False)
     with chat_box:
@@ -102,7 +107,7 @@ def _render_chat_fragment(username: str, role: str, allowed_profiles: list, user
                 allowed_profiles=allowed_profiles,
                 username=username,
                 user_record=user_record,
-                chat_history=hist,
+                chat_history=hist,  # ngữ cảnh cho AI, không hiển thị lại khi session mới
                 viewing_profile=st.session_state.get("viewing_profile"),
             )
         except Exception as e:
@@ -118,10 +123,8 @@ def _render_chat_fragment(username: str, role: str, allowed_profiles: list, user
         "tool_status": status,
     }
     st.session_state[cache_key].append(new_msg)
-    if username:
-        save_chat_history(username, st.session_state[cache_key])
-
-    st.rerun()
+    # Không lưu vào database, chỉ giữ trong session của máy người dùng.
+    # Không gọi st.rerun() toàn bộ trang để tránh reload lại ứng dụng Streamlit Cloud.
 
 
 def render_chat_section(ctx: UserContext):

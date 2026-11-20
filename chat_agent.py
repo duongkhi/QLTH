@@ -9,7 +9,7 @@ from security import detect_name_from_data
 from storage import load_user_profile, load_name_mapping, get_all_existing_profiles
 from profile_service import resolve_profile, suggest_profile_key
 from user_service import get_own_profile
-from supabase_adapter import get_ai_settings, filter_profiles_in_db, load_json_from_db, save_json_to_db
+from supabase_adapter import get_ai_settings, filter_profiles_in_db, load_json_from_db, save_json_to_db, load_many
 from finance_agent import query_finance_data_tool, query_transactions_tool, search_knowledge_base
 from finance_service import load_finance_data, get_visible_project_ids
 from tool_registry import TOOL_REGISTRY
@@ -42,12 +42,18 @@ def save_chat_history(username, history):
 # TOOLS IMPLEMENTATION
 # ==========================================
 def list_accessible_profiles(allowed):
+    """Lấy thông tin tóm tắt các hồ sơ có quyền truy cập.
+
+    Dùng load_many để tải toàn bộ hồ sơ cần thiết trong một query Supabase
+    thay vì gọi lẻ từng hồ sơ, giúp giảm thời gian chờ trên Streamlit Cloud.
+    """
     m = load_name_mapping()
+    profiles = load_many(list(allowed)) if allowed else {}
     return [
         {
             "profile_key": k,
             "display_name": m.get(k, {}).get("display_name", ""),
-            "has_data": bool(load_user_profile(k)),
+            "has_data": bool(profiles.get(k)),
         }
         for k in allowed
     ]
@@ -215,7 +221,7 @@ def chat_with_ai(user_q, allowed_profiles, username, user_record, chat_history=N
     used, p_used, status = False, None, None
     all_existing = get_all_existing_profiles()
 
-    for _ in range(5):
+    for _ in range(3):
         resp = _generate_with_retry(cfg, contents)
         if not resp.candidates:
             return "Xin lỗi, không xử lý được.", used, p_used, status
