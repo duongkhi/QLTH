@@ -31,7 +31,9 @@ def _migrate_user_record(uname, rec):
 def load_auth_config():
     cfg = load_json_from_db("auth_config")
     if not cfg or "users" not in cfg:
-        default_pw = st.secrets.get("DEFAULT_ADMIN_PW", "adminpassword")
+        if "DEFAULT_ADMIN_PW" not in st.secrets:
+            raise RuntimeError("Thiếu st.secrets['DEFAULT_ADMIN_PW'] – phải cung cấp mật khẩu admin mặc định.")
+        default_pw = st.secrets["DEFAULT_ADMIN_PW"]
         cfg = {"users": {
             "admin": {
                 "password_hash": hash_password(default_pw),

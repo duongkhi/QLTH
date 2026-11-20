@@ -70,9 +70,30 @@ def _notify(prefix: str, e: Exception) -> None:
         pass
 
 
+def _clear_read_caches() -> None:
+    """Xóa toàn bộ cache đọc để dữ liệu luôn mới ngay sau khi ghi/xóa."""
+    try:
+        load_json_from_db.clear()
+    except Exception:
+        pass
+    try:
+        list_all_keys.clear()
+    except Exception:
+        pass
+    try:
+        list_keys_with_prefix.clear()
+    except Exception:
+        pass
+    try:
+        exists_key.clear()
+    except Exception:
+        pass
+
+
 # ============================================================
 # CRUD key-value
 # ============================================================
+@st.cache_data(ttl=120)
 def load_json_from_db(key: str) -> dict:
     if not key:
         return {}
@@ -87,6 +108,7 @@ def load_json_from_db(key: str) -> dict:
         return resp.data[0]["data"] if resp.data else {}
     except Exception as e:
         _notify(f"Lỗi đọc Supabase key='{key}'", e)
+        st.error(f"Lỗi đọc dữ liệu từ Supabase key '{key}'")
         return {}
 
 
@@ -100,6 +122,7 @@ def save_json_to_db(key: str, data: dict) -> bool:
             .upsert({"key": key, "data": data})
             .execute()
         )
+        _clear_read_caches()
         return True
     except Exception as e:
         _notify(f"Lỗi ghi Supabase key='{key}'", e)
@@ -117,12 +140,14 @@ def delete_key_from_db(key: str) -> bool:
             .eq("key", key)
             .execute()
         )
+        _clear_read_caches()
         return True
     except Exception as e:
         _notify(f"Lỗi xóa Supabase key='{key}'", e)
         return False
 
 
+@st.cache_data(ttl=120)
 def list_all_keys() -> list:
     try:
         resp = get_supabase_client().table(TABLE).select("key").execute()
@@ -132,6 +157,7 @@ def list_all_keys() -> list:
         return []
 
 
+@st.cache_data(ttl=120)
 def list_keys_with_prefix(prefix: str) -> list:
     """Liệt kê key bắt đầu bằng prefix (dùng LIKE 'prefix%')."""
     if not prefix:
@@ -150,6 +176,7 @@ def list_keys_with_prefix(prefix: str) -> list:
         return []
 
 
+@st.cache_data(ttl=120)
 def exists_key(key: str) -> bool:
     if not key:
         return False
@@ -208,7 +235,13 @@ def filter_profiles_in_db(operator: str, field: str, value: Any) -> list:
     """
     if not operator or not field:
         return []
+
     op = operator.lower().strip()
+    ALLOWED_FIELDS = {"data->>ho_ten", "data->>ngay_sinh", "data->>role"}
+
+    if op in ("cs", "contains") and field not in ALLOWED_FIELDS:
+        _notify("Field không hợp lệ", ValueError(field))
+        return []
 
     try:
         client = get_supabase_client()
@@ -217,15 +250,18 @@ def filter_profiles_in_db(operator: str, field: str, value: Any) -> list:
         if op == "in":
             vals = value if isinstance(value, (list, tuple)) else [value]
             query = query.in_(field, list(vals))
-            
+
         elif op in ("cs", "contains"):
-            # SỬA LỖI: Nếu là text (->>) → dùng ilike thay vì contains
+            # Whitelist field validation to prevent injection
+            if field not in ALLOWED_FIELDS:
+                _notify("Field không hợp lệ", ValueError(field))
+                return []
+            # Nếu là text (->>) → dùng ilike thay vì contains
             # Nếu là mảng/jsonb → giữ nguyên contains
             if "->>" in field:
                 query = query.ilike(field, f"%{value}%")
             else:
                 query = query.contains(field, value)
-                
         elif op in ("cd", "contained_by"):
             query = query.contained_by(field, value)
             

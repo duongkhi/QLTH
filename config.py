@@ -14,7 +14,7 @@ CHAT_MODELS_TO_TRY = ["gemini-3.5-flash-lite", "gemini-3.8-flash"]
 
 FORM_TEMPLATE_PREFIX = "_form_template_"
 FORM_TEMPLATE_INDEX = "_form_template_index"
-META_KEYS = {"auth_config", "name_mapping", FORM_TEMPLATE_INDEX, "ai_settings"}
+META_KEYS = {"auth_config", "name_mapping", FORM_TEMPLATE_INDEX, "ai_settings", "hermes_skills_registry", "journal_quality_catalog"}
 
 # Danh sách công cụ nghiệp vụ có thể cấp quyền cho User / Manager
 SYSTEM_TOOLS = {

@@ -10,7 +10,7 @@ from storage import get_all_existing_profiles
 
 def render_user_admin_page(ctx: UserContext):
     st.title("🛡️ Quản Trị Người Dùng & Phân Quyền")
-    st.caption("Tạo tài khoản, gán vai trò (User / Manager / Admin) và cấp quyền từng công cụ nghiệp vụ")
+    st.caption("Admin mặc định có toàn bộ công cụ; Manager và User được tùy chỉnh thêm/bớt từng công cụ")
 
     auth_data = load_auth_config()
     users = auth_data.get("users", {})
@@ -26,7 +26,7 @@ def render_user_admin_page(ctx: UserContext):
             c4, c5 = st.columns(2)
             new_p = c4.selectbox("Gán hồ sơ cá nhân:", ["(Tự động theo username)"] + all_profiles)
             new_t = c5.multiselect(
-                "Cấp quyền Tool:",
+                "Cấp quyền Tool (bỏ qua nếu là Admin):",
                 options=list(SYSTEM_TOOLS.keys()),
                 format_func=lambda k: SYSTEM_TOOLS[k],
             )
@@ -38,7 +38,8 @@ def render_user_admin_page(ctx: UserContext):
                     st.error("Mật khẩu phải ≥ 4 ký tự.")
                 else:
                     prof_val = None if new_p == "(Tự động theo username)" else new_p
-                    ok2, msg2 = admin_create_user(new_u, new_pw, new_r, prof_val, new_t)
+                    tools_val = list(SYSTEM_TOOLS.keys()) if new_r == "admin" else new_t
+                    ok2, msg2 = admin_create_user(new_u, new_pw, new_r, prof_val, tools_val)
                     if ok2:
                         st.success(msg2)
                         st.rerun()
@@ -71,22 +72,28 @@ def render_user_admin_page(ctx: UserContext):
                 key=f"adm_prof_{uname}",
             )
 
-            cur_tools = urec.get("allowed_tools", [])
+            # Nếu chọn role == 'admin' -> mặc định active hết và khóa chỉnh sửa
+            # Nếu là 'manager' hoặc 'user' -> mở khóa để add/remove tự do
+            is_admin_role = (new_role == "admin")
+            cur_tools = list(SYSTEM_TOOLS.keys()) if is_admin_role else [
+                t for t in urec.get("allowed_tools", []) if t in SYSTEM_TOOLS
+            ]
+
             new_tools = c3.multiselect(
                 "Tool nghiệp vụ được cấp:",
                 options=list(SYSTEM_TOOLS.keys()),
-                default=[t for t in cur_tools if t in SYSTEM_TOOLS],
+                default=cur_tools,
                 format_func=lambda k: SYSTEM_TOOLS[k],
-                key=f"adm_tools_{uname}",
-                disabled=(new_role in ("admin", "manager")),
-                help="Manager và Admin mặc định có toàn bộ công cụ.",
+                key=f"adm_tools_{uname}_{new_role}",
+                disabled=is_admin_role,
+                help="Admin mặc định kích hoạt toàn bộ công cụ. Manager và User có thể thêm/bớt tùy ý.",
             )
 
             b1, b2, b3 = st.columns([2, 2, 1])
             with b1:
                 if st.button("💾 Lưu phân quyền", key=f"adm_save_{uname}", type="primary", use_container_width=True):
                     prof_to_save = None if new_prof == "(Không gán)" else new_prof
-                    tools_to_save = list(SYSTEM_TOOLS.keys()) if new_role in ("admin", "manager") else new_tools
+                    tools_to_save = list(SYSTEM_TOOLS.keys()) if is_admin_role else new_tools
                     ok, msg = admin_update_user(uname, new_role, prof_to_save, tools_to_save)
                     if ok:
                         st.success(msg)

@@ -45,7 +45,7 @@ def _edit_project_dialog(pid: str, project: dict):
     st.markdown("---")
     col_save, col_cancel = st.columns(2)
     with col_save:
-        if st.button("💾 Lưu thay đổi", type="primary", use_container_width=True):
+        if st.button("💾 Lưu thay đổi", type="primary", width='stretch'):
             ok, msg = update_single_project(pid, {
                 "name": name, "pi": pi, "group": group,
                 "duration": duration, "task_type": task_type, "unit": unit,
@@ -57,7 +57,7 @@ def _edit_project_dialog(pid: str, project: dict):
             st.session_state["_project_flash"] = msg
             st.rerun()
     with col_cancel:
-        if st.button("❌ Hủy", use_container_width=True):
+        if st.button("❌ Hủy", width='stretch'):
             st.session_state["editing_pid"] = None
             st.rerun()
 
@@ -151,7 +151,7 @@ def render_finance_module(ctx: UserContext):
                 "Giải ngân": st.column_config.NumberColumn(format="%d đ"),
                 "Tỷ lệ %": st.column_config.ProgressColumn(
                     format="%.1f%%", min_value=0, max_value=100),
-            }, use_container_width=True, hide_index=True)
+            }, width='stretch', hide_index=True)
 
     # =================================================================
     # TAB 2: QUẢN LÝ ĐỀ TÀI (chỉ admin/manager)
@@ -200,12 +200,12 @@ def render_finance_module(ctx: UserContext):
                             )
                         with c2:
                             if st.button("✏️", key=f"edit_{pid}",
-                                         help="Sửa đề tài", use_container_width=True):
+                                         help="Sửa đề tài", width='stretch'):
                                 st.session_state["editing_pid"] = pid
                                 st.rerun()
                         with c3:
                             if st.button("🗑️", key=f"del_{pid}",
-                                         help="Xóa đề tài", use_container_width=True):
+                                         help="Xóa đề tài", width='stretch'):
                                 delete_single_project(pid)
                                 st.session_state["_project_flash"] = f"Đã xóa `{pid}`."
                                 st.rerun()

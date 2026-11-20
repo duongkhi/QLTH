@@ -21,6 +21,7 @@ from docx_utils import (
     render_docx_preview, truncate_profile_for_prompt, fix_tcvn3_text,
 )
 from ai_client import call_model_json, get_client
+from journal_service import normalize_publication_list, load_journal_catalog
 from form_templates import (
     list_form_templates, get_form_template, get_template_docx_bytes,
 )
@@ -330,7 +331,7 @@ def render_public_profile(ctx: UserContext, target_profile_key: str):
     with col_ii_ai:
         if can_trigger_ai:
             btn_label = "🤖 AI tổng hợp (10 năm)" if not research_dir else "🔄 AI cập nhật hướng NC"
-            if st.button(btn_label, key=f"btn_ai_res_{target_profile_key}", use_container_width=True):
+            if st.button(btn_label, key=f"btn_ai_res_{target_profile_key}", width='stretch'):
                 new_summary = _generate_ai_research_summary(target_profile_key, data)
                 if new_summary:
                     st.rerun()
@@ -465,7 +466,7 @@ def render_settings_page(ctx: UserContext):
         )
     with col_b:
         st.write("")
-        if ctx.own_profile and st.button("👁️ Xem trang Public", use_container_width=True):
+        if ctx.own_profile and st.button("👁️ Xem trang Public", width='stretch'):
             st.session_state.viewing_profile = ctx.own_profile
             st.session_state.view_mode = "public_profile"
             st.rerun()
@@ -563,7 +564,7 @@ def _render_tab_personal_info(ctx: UserContext):
         new_v = nc2.text_input("Giá trị", key="new_field_v")
         new_pub = nc3.checkbox("Public", value=True, key="new_field_pub")
 
-        if st.form_submit_button("💾 Lưu thay đổi", type="primary", use_container_width=True):
+        if st.form_submit_button("💾 Lưu thay đổi", type="primary", width='stretch'):
             for k, v in updated_values.items():
                 data[k] = v
             if new_k.strip():
@@ -652,26 +653,43 @@ def _render_personal_uploader(ctx: UserContext):
     elif stage == "review":
         extracted = st.session_state.upload_extracted or {}
         st.success(f"✅ Trích xuất được **{len(extracted)} trường** dữ liệu.")
+
+        # --- Chuẩn hóa danh sách bài báo theo 12 trường Scopus trước khi lưu ---
+        catalog = load_journal_catalog()
+        pub_keys = ("cong_bo", "bai_bao", "san_pham_khoa_hoc")
+        normalized_pubs = []
+        for pk in pub_keys:
+            val = extracted.get(pk)
+            if isinstance(val, list):
+                normalized_pubs.extend(val)
+        if normalized_pubs:
+            normed = normalize_publication_list(normalized_pubs, catalog)
+            extracted["bai_bao_chuan_scopus"] = normed
+            st.info(
+                f"🔎 Đã chuẩn hóa **{len(normed)}** bài báo theo 12 trường Scopus "
+                f"(đã đối chiếu kho danh mục & Crossref nếu thiếu thông tin)."
+            )
+
         with st.expander("👁️ Xem dữ liệu trích xuất", expanded=True):
             st.json(extracted)
 
         c1, c2, c3 = st.columns(3)
         with c1:
-            if st.button("🔄 Gộp vào hồ sơ", type="primary", use_container_width=True):
+            if st.button("🔄 Gộp vào hồ sơ", type="primary", width='stretch'):
                 merge_and_save(ctx.own_profile, extracted)
                 st.session_state.upload_stage = None
                 st.success("✅ Đã gộp vào hồ sơ!")
                 time.sleep(0.5)
                 st.rerun()
         with c2:
-            if st.button("♻️ Ghi đè hồ sơ", use_container_width=True):
+            if st.button("♻️ Ghi đè hồ sơ", width='stretch'):
                 merge_and_save(ctx.own_profile, extracted, overwrite=True)
                 st.session_state.upload_stage = None
                 st.success("✅ Đã ghi đè hồ sơ!")
                 time.sleep(0.5)
                 st.rerun()
         with c3:
-            if st.button("❌ Hủy", use_container_width=True):
+            if st.button("❌ Hủy", width='stretch'):
                 st.session_state.upload_stage = None
                 st.rerun()
 
@@ -695,7 +713,7 @@ def _render_tab_scientific_cv(ctx: UserContext):
         key="cv_tpl_select",
     )
 
-    if st.button("✍️ Điền tự động từ hồ sơ của tôi", type="primary", use_container_width=True):
+    if st.button("✍️ Điền tự động từ hồ sơ của tôi", type="primary", width='stretch'):
         meta = get_form_template(sel_tid)
         docx_bytes = get_template_docx_bytes(sel_tid)
         tdata = load_user_profile(ctx.own_profile)
@@ -763,7 +781,7 @@ def _render_tab_scientific_cv(ctx: UserContext):
                 data=out_bytes,
                 file_name=f"LLKH_{ctx.own_profile}_{sel_tid}.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                use_container_width=True,
+                width='stretch',
             )
         except Exception as e:
             prog.empty()
@@ -825,7 +843,7 @@ def _render_tab_projects(ctx: UserContext):
                         f"Trạng thái: {dt.get('trang_thai')}"
                     )
                 with col_del:
-                    if st.button("🗑️ Xóa", key=f"del_dt_{idx}", use_container_width=True):
+                    if st.button("🗑️ Xóa", key=f"del_dt_{idx}", width='stretch'):
                         projects.pop(idx)
                         data["de_tai"] = projects
                         save_user_profile(ctx.own_profile, data)

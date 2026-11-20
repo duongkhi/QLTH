@@ -11,6 +11,9 @@ temp_uploads/
 # Thư mục dữ liệu
 database/
 
+# Thư mục cấu hình kế toán (sao chép sang máy kế toán, không đẩy lên GitHub)
+thu_muc_cau_hinh_ke_toan/
+
 # Python rác
 __pycache__/
 *.pyc

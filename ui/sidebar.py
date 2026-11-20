@@ -12,7 +12,7 @@ def render_sidebar(ctx: UserContext):
         # =========================================================
         if not st.session_state.logged_in:
             st.info("👀 Chế độ: **Khách (Public)**")
-            if st.button("🔐 Sign In (Đăng nhập)", type="primary", use_container_width=True):
+            if st.button("🔐 Sign In (Đăng nhập)", type="primary", width='stretch'):
                 st.session_state.show_login_panel = not st.session_state.show_login_panel
                 st.rerun()
 
@@ -37,7 +37,7 @@ def render_sidebar(ctx: UserContext):
                 )
                 if st.button(
                     "🏠 Trang cá nhân của tôi",
-                    use_container_width=True,
+                    width='stretch',
                     type="primary" if is_viewing_self else "secondary",
                 ):
                     st.session_state.viewing_profile = ctx.own_profile
@@ -48,13 +48,13 @@ def render_sidebar(ctx: UserContext):
             with c1:
                 if st.button(
                     "⚙️ Setting",
-                    use_container_width=True,
+                    width='stretch',
                     type="primary" if st.session_state.view_mode == "settings" else "secondary",
                 ):
                     st.session_state.view_mode = "settings"
                     st.rerun()
             with c2:
-                if st.button("🚪 Sign Out", use_container_width=True):
+                if st.button("🚪 Sign Out", width='stretch'):
                     st.session_state.logged_in = False
                     st.session_state.username = ""
                     st.session_state["_prev_logged_user"] = ""
@@ -76,7 +76,7 @@ def render_sidebar(ctx: UserContext):
             if has_workspace:
                 if st.button(
                     "💼 Nghiệp vụ (Tools)",
-                    use_container_width=True,
+                    width='stretch',
                     type="primary" if st.session_state.view_mode == "workspace" else "secondary",
                 ):
                     st.session_state.view_mode = "workspace"
@@ -85,8 +85,28 @@ def render_sidebar(ctx: UserContext):
             if ctx.role == "admin":
                 if st.button(
                     "🛡️ Quản lý User",
-                    use_container_width=True,
+                    width='stretch',
                     type="primary" if st.session_state.view_mode == "user_admin" else "secondary",
                 ):
                     st.session_state.view_mode = "user_admin"
+                    st.rerun()
+
+            # Nút truy cập trang Kỹ năng (Skill): tạo mới + quản trị (admin)
+            st.markdown("---")
+            if st.button(
+                "🛠️ Kỹ năng (Skill)",
+                width='stretch',
+                type="primary" if st.session_state.view_mode == "skill" else "secondary",
+            ):
+                st.session_state.view_mode = "skill"
+                st.rerun()
+
+            if ctx.role == "admin":
+                st.markdown("---")
+                if st.button(
+                    "📚 Quản lý Data",
+                    width='stretch',
+                    type="primary" if st.session_state.view_mode == "journal_admin" else "secondary",
+                ):
+                    st.session_state.view_mode = "journal_admin"
                     st.rerun()

@@ -25,6 +25,9 @@ from ui.profile_ui import render_public_profile, render_settings_page
 from ui.workspace_ui import render_workspace_module
 from ui.user_admin_ui import render_user_admin_page
 from ui.chat_ui import render_chat_section
+from ui.skill_ui import render_skill_page
+from skill_manager import ensure_statistics_skill
+from ui.journal_admin_ui import render_journal_admin_page
 
 st.set_page_config(
     page_title="Hệ Thống Hồ Sơ & AI Agent",
@@ -54,6 +57,9 @@ st.markdown("""<style>
 </style>""", unsafe_allow_html=True)
 
 init_session_state()
+
+# Đăng ký Skill thống kê bài báo mặc định (nếu chưa có)
+ensure_statistics_skill()
 
 if st.session_state.get("pending_toast"):
     st.toast(st.session_state.pending_toast, icon="🎉")
@@ -131,6 +137,13 @@ with col_main:
     elif mode == "user_admin":
         if ctx.role == "admin":
             render_user_admin_page(ctx)
+        else:
+            st.error("🚫 Chỉ quản trị viên mới có quyền truy cập trang này.")
+    elif mode == "skill":
+        render_skill_page(ctx)
+    elif mode == "journal_admin":
+        if ctx.role == "admin":
+            render_journal_admin_page(ctx)
         else:
             st.error("🚫 Chỉ quản trị viên mới có quyền truy cập trang này.")
 

@@ -79,11 +79,11 @@ def _extract_cumulative_impl(args, ctx):
     }
 
 def _export_payroll_excel_impl(args, ctx):
-    """Xuất Excel bảng lương tháng. Dùng openpyxl/pandas."""
+    """Xuất file Excel bảng lương tháng. Gọi khi user muốn tải file."""
     import pandas as pd
     import io
     from supabase_adapter import load_json_from_db
-    
+
     month = args["month"]
     rows = []
     for key in ctx["allowed_profiles"]:
@@ -105,9 +105,116 @@ def _export_payroll_excel_impl(args, ctx):
     bio.seek(0)
     return {
         "status": "ready",
-        "download_token": f"payroll_{month}",  # Lưu vào session_state để download
-        "_excel_bytes": bio.getvalue(),  # caller sẽ pop và lưu
+        "download_token": f"payroll_{month}",
+        "_excel_bytes": bio.getvalue(),
     }
+
+
+def _thong_ke_bai_bao_impl(args, ctx):
+    """Thống kê bài báo khoa học theo chuẩn Scopus/ISI (Skill Admin)."""
+    from_year = args.get("from_year")
+    to_year = args.get("to_year")
+    unit = str(args.get("unit", "")).strip().lower()
+    person = str(args.get("person", "")).strip().lower()
+    export_excel = bool(args.get("export_excel", False))
+
+    load_profile = ctx["load_profile"]
+    get_name = ctx["get_name"]
+    allowed_profiles = ctx.get("allowed_profiles", [])
+
+    rows = []
+    for key in allowed_profiles:
+        prof = load_profile(key) or {}
+        name = get_name(key)
+
+        if person and person not in str(name).lower():
+            continue
+        don_vi = str(prof.get("don_vi_cong_tac", "") or prof.get("don_vi", "")).lower()
+        if unit and unit not in don_vi:
+            continue
+
+        pubs = prof.get("bai_bao_chuan_scopus", [])
+        if not isinstance(pubs, list):
+            pubs = prof.get("cong_bo", [])
+        if not isinstance(pubs, list):
+            pubs = prof.get("bai_bao", [])
+        if not isinstance(pubs, list):
+            pubs = []
+
+        for p in pubs:
+            if not isinstance(p, dict):
+                continue
+            try:
+                y = int(p.get("year") or 0)
+            except Exception:
+                y = 0
+            if from_year and y < int(from_year):
+                continue
+            if to_year and y > int(to_year):
+                continue
+
+            rows.append({
+                "Ma HS": key,
+                "Ho ten": name,
+                "Ten bai bao": p.get("title", ""),
+                "Tac gia": p.get("authors", ""),
+                "Vai tro": p.get("author_role", ""),
+                "Tap chi": p.get("source_title", ""),
+                "Nam": y,
+                "Tap": p.get("volume", ""),
+                "So": p.get("issue", ""),
+                "Trang": p.get("page_range", ""),
+                "DOI": p.get("doi", ""),
+                "ISSN": p.get("issn", ""),
+                "ISBN": p.get("isbn", ""),
+                "Loai chi so": p.get("index_type", ""),
+                "Quy": p.get("quartile", ""),
+                "Loai bai bao": p.get("document_type", ""),
+            })
+
+    total = len(rows)
+    isi = sum(1 for r in rows if "ISI" in str(r["Loai chi so"]))
+    scopus = sum(1 for r in rows if "Scopus" in str(r["Loai chi so"]))
+    trong_nuoc = sum(1 for r in rows if "Trong" in str(r["Loai chi so"]))
+    q1 = sum(1 for r in rows if str(r["Quy"]) == "Q1")
+    q2 = sum(1 for r in rows if str(r["Quy"]) == "Q2")
+    q3 = sum(1 for r in rows if str(r["Quy"]) == "Q3")
+    q4 = sum(1 for r in rows if str(r["Quy"]) == "Q4")
+
+    summary = {
+        "Tong so": total,
+        "ISI/SCIE": isi,
+        "Scopus": scopus,
+        "Trong nuoc": trong_nuoc,
+        "Q1": q1,
+        "Q2": q2,
+        "Q3": q3,
+        "Q4": q4,
+    }
+
+    result = {
+        "summary": summary,
+        "rows": rows,
+        "filters": {
+            "from_year": from_year,
+            "to_year": to_year,
+            "unit": unit,
+            "person": person,
+        },
+    }
+
+    if export_excel and rows:
+        import pandas as pd
+        import io
+        df = pd.DataFrame(rows)
+        bio = io.BytesIO()
+        with pd.ExcelWriter(bio, engine="openpyxl") as w:
+            df.to_excel(w, index=False, sheet_name="Bai_bao")
+        bio.seek(0)
+        result["_excel_bytes"] = bio.getvalue()
+        result["download_token"] = f"thong_ke_bai_bao_{from_year or ''}_{to_year or ''}"
+
+    return result
 
 
 # ============ SCHEMAS cho AI ============
@@ -169,6 +276,44 @@ TOOL_REGISTRY = {
                 type=types.Type.OBJECT,
                 properties={"month": types.Schema(type=types.Type.STRING)},
                 required=["month"],
+            ),
+        ),
+    },
+    "thong_ke_bai_bao_khoa_hoc": {
+        "func": _thong_ke_bai_bao_impl,
+        "schema": types.FunctionDeclaration(
+            name="thong_ke_bai_bao_khoa_hoc",
+            description=(
+                "Thống kê bài báo khoa học theo chuẩn Scopus/ISI. "
+                "Hỗ trợ lọc theo khoảng năm, đơn vị/tập thể và cá nhân. "
+                "Trả về bảng chi tiết và tổng hợp theo phân loại. "
+                "Dùng khi user hỏi về thống kê công bố khoa học."
+            ),
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "from_year": types.Schema(
+                        type=types.Type.INTEGER,
+                        description="Năm bắt đầu (ví dụ 2020), để trống nếu không giới hạn.",
+                    ),
+                    "to_year": types.Schema(
+                        type=types.Type.INTEGER,
+                        description="Năm kết thúc (ví dụ 2025), để trống nếu không giới hạn.",
+                    ),
+                    "unit": types.Schema(
+                        type=types.Type.STRING,
+                        description="Tên đơn vị/tập thể (ví dụ 'Trung tâm Điện tử Lượng tử'), để trống nếu không lọc.",
+                    ),
+                    "person": types.Schema(
+                        type=types.Type.STRING,
+                        description="Tên cá nhân, để trống nếu không lọc.",
+                    ),
+                    "export_excel": types.Schema(
+                        type=types.Type.BOOLEAN,
+                        description="Có xuất file Excel kèm theo hay không.",
+                    ),
+                },
+                required=[],
             ),
         ),
     },

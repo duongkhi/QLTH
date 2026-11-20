@@ -14,7 +14,7 @@ def render_workspace_module(ctx: UserContext, allowed_tools: list[str]):
     st.title("💼 Không Gian Nghiệp Vụ")
     st.caption("Các công cụ chuyên môn được cấp quyền cho tài khoản của bạn")
 
-    effective_tools = list(SYSTEM_TOOLS.keys()) if ctx.is_power else [
+    effective_tools = list(SYSTEM_TOOLS.keys()) if ctx.role == "admin" else [
         t for t in allowed_tools if t in SYSTEM_TOOLS
     ]
 

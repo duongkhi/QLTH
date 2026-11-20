@@ -17,7 +17,7 @@ def render_auth_screen():
     c1, c2 = st.columns(2)
     with c1:
         if st.button(
-            "🔑 Đăng nhập", use_container_width=True,
+            "🔑 Đăng nhập", width='stretch',
             type="primary" if st.session_state.auth_mode == "login" else "secondary",
             key="sw_login",
         ):
@@ -25,7 +25,7 @@ def render_auth_screen():
             st.rerun()
     with c2:
         if st.button(
-            "📝 Đăng ký", use_container_width=True,
+            "📝 Đăng ký", width='stretch',
             type="primary" if st.session_state.auth_mode == "register" else "secondary",
             key="sw_register",
         ):
@@ -45,7 +45,7 @@ def _render_login(auth_config):
     with st.form("login_form"):
         u = st.text_input("Tên đăng nhập", value=default_u, key="login_u")
         p = st.text_input("Mật khẩu", type="password", key="login_p")
-        if st.form_submit_button("Đăng nhập", use_container_width=True):
+        if st.form_submit_button("Đăng nhập", width='stretch'):
             rec = auth_config["users"].get(u)
             if rec and verify_password(p, rec["password_hash"]):
                 st.session_state.update({
@@ -70,7 +70,7 @@ def _render_register():
         npw = st.text_input("Mật khẩu", type="password", key="reg_p",
                             placeholder="≥6 ký tự")
         npw2 = st.text_input("Nhập lại mật khẩu", type="password", key="reg_p2")
-        if st.form_submit_button("Đăng ký", use_container_width=True):
+        if st.form_submit_button("Đăng ký", width='stretch'):
             ok_u, msg_u = validate_username(nu)
             if not ok_u:
                 st.error(msg_u)

@@ -67,6 +67,40 @@ def call_model_json(prompt, progress, start=20, end=95, label="🤖 AI"):
     raise RuntimeError(f"Model quá tải. Last error: {last_err!r}") from last_err
 
 
+def generate_gemini_text(prompt: str) -> str | None:
+    """
+    Gọi Gemini trả về văn bản thuần (không stream, không progress bar).
+    Trả về None nếu hết quota / lỗi mạng, để caller có thể fallback.
+    """
+    client = get_client()
+    if not client:
+        return None
+
+    last_err = None
+    for mn in CHAT_MODELS_TO_TRY:
+        for att in range(MAX_RETRIES + 1):
+            try:
+                resp = client.models.generate_content(
+                    model=mn,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        thinking_config=types.ThinkingConfig(
+                            thinking_level=types.ThinkingLevel.MINIMAL
+                        )
+                    ),
+                )
+                return resp.text
+            except APIError as e:
+                if e.code in (429, 503, 404):
+                    last_err = e
+                    if att < MAX_RETRIES:
+                        time.sleep(2 ** att)
+                        continue
+                    break
+                raise
+    return None
+
+
 def _generate_with_retry(cfg, contents, max_retries=3):
     # ⚠️ ĐÂY LÀ DÒNG BỊ THIẾU GÂY RA LỖI
     client = get_client()

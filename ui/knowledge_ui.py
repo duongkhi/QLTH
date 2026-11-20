@@ -74,14 +74,14 @@ def _render_ocr_guide_if_needed(uploaded_files):
         st.link_button(
             "🌐 iLovePDF OCR (file lớn OK)",
             "https://www.ilovepdf.com/ocr-pdf",
-            use_container_width=True,
+            width='stretch',
             type="primary",
         )
     with c2:
         st.link_button(
             "📂 Google Drive (miễn phí, <2MB)",
             "https://drive.google.com",
-            use_container_width=True,
+            width='stretch',
         )
     
     st.caption(
@@ -109,11 +109,11 @@ def render_knowledge_ui(ctx):
         )
         st.info(f"Đã sử dụng: **{st.session_state.kb_tokens_used:,}** token.")
         
-        if st.button("▶️ Tiếp tục xử lý các file còn lại", type="primary", use_container_width=True):
+        if st.button("▶️ Tiếp tục xử lý các file còn lại", type="primary", width='stretch'):
             _process_queue(st.session_state.kb_target_key)
             st.rerun()
             
-        if st.button("🗑️ Hủy bỏ hàng đợi", use_container_width=True):
+        if st.button("🗑️ Hủy bỏ hàng đợi", width='stretch'):
             st.session_state.kb_queue = []
             st.session_state.kb_tokens_used = 0
             st.rerun()
