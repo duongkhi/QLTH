@@ -5,7 +5,8 @@ import streamlit as st
 
 from ai_client import _generate_with_retry, generate_gemini_text_real
 from config import META_KEYS, UserContext
-from security import detect_name_from_data, detect_dob_from_data
+from security import (_norm, _strip_diacritics, detect_name_from_data,
+                     detect_dob_from_data)
 from storage import (
     load_user_profile, load_name_mapping, get_all_existing_profiles,
 )
@@ -615,8 +616,18 @@ def chat_with_ai(user_q, allowed_profiles, username, user_record,
 
     # ====== LUỒNG 1: CHAT THƯỜNG ======
     if "chat" in intent:
-        ans = _handle_chat(user_q, db_prompt, hist_text)
-        return ans, False, None, "chat"
+        # Nếu câu hỏi nhắc đến tên một người trong hệ thống (có dấu hay không dấu),
+        # ép chuyển sang luồng tra cứu thay vì trả lời chào chung.
+        q_norm = _strip_diacritics(user_q.lower())
+        for k in all_existing:
+            k_norm = _strip_diacritics(k.lower())
+            if k_norm and (k_norm in q_norm or q_norm in k_norm):
+                intent = "retrieve"
+                break
+
+        if "chat" in intent:
+            ans = _handle_chat(user_q, db_prompt, hist_text)
+            return ans, False, None, "chat"
 
     # ====== LUỒNG 2: RETRIEVE (truy xuất Supabase) ======
     if any(k in intent for k in ("retrieve", "file")):

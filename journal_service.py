@@ -12,7 +12,7 @@ import pandas as pd
 from supabase_adapter import load_json_from_db, save_json_to_db, list_all_keys, delete_key_from_db
 
 CATALOG_KEY_PREFIX = "journal_quality_catalog_"
-CATALOG_META_KEY = "journal_quality_catalog_index"
+CATALOG_META_KEY = "journal_quality_catalog_Scinago_2025_index"
 BATCH_SIZE = 3000
 
 
@@ -194,7 +194,37 @@ def read_uploaded_file(uploaded) -> pd.DataFrame:
     raw = uploaded.getvalue()
 
     if name.endswith(".csv"):
-        df = pd.read_csv(io.BytesIO(raw), dtype=str).fillna("")
+        # Tự động phát hiện dấu phân cách phù hợp cho từng file CSV
+        # (ScimagoJR dùng ';', file CSV thường dùng ',', ...)
+        best_df = None
+        best_sep = None
+        best_score = -1
+        for sep in [";", ",", "\t", "|"]:
+            try:
+                trial = pd.read_csv(
+                    io.BytesIO(raw), dtype=str, sep=sep, engine="python"
+                ).fillna("")
+                # Chọn delimiter tạo ra nhiều cột nhất và ổn định nhất
+                n_cols = trial.shape[1]
+                # Điểm ưu tiên: nhiều cột, và ít dòng có số cột khác nhau hơn
+                n_rows = trial.shape[0]
+                inconsistent = sum(
+                    1
+                    for _, row in trial.iterrows()
+                    if sum(1 for v in row if str(v).strip() != "") != n_cols
+                )
+                score = n_cols * 1000 - inconsistent
+                if score > best_score:
+                    best_score = score
+                    best_sep = sep
+                    best_df = trial
+            except Exception:
+                continue
+        if best_df is not None:
+            df = best_df
+        else:
+            # Fallback cuối cùng
+            df = pd.read_csv(io.BytesIO(raw), dtype=str, sep=",", engine="python").fillna("")
     elif name.endswith((".xlsx", ".xls")):
         df = pd.read_excel(io.BytesIO(raw), dtype=str).fillna("")
     elif name.endswith(".docx"):
@@ -216,10 +246,13 @@ def read_uploaded_file(uploaded) -> pd.DataFrame:
     # Map các tên cột phổ biến về chuẩn
     col_map = {
         "tạp_chí": "journal_name", "ten_tap_chi": "journal_name", "journal": "journal_name",
-        "journal_name": "journal_name", "issn": "issn", "isbn": "isbn",
+        "journal_name": "journal_name", "title": "journal_name",
+        "issn": "issn", "isbn": "isbn",
         "doi": "doi", "loai_chỉ_số": "index_type", "index_type": "index_type",
-        "chi_so": "index_type", "quý": "quartile", "quartile": "quartile",
+        "chi_so": "index_type", "type": "index_type",
+        "quý": "quartile", "quartile": "quartile", "sjr_best_quartile": "quartile",
         "q": "quartile", "nam": "year", "year": "year", "publish_year": "year",
+        "coverage": "year",
     }
     df = df.rename(columns=col_map)
 

@@ -25,7 +25,7 @@ SYSTEM_EXACT_KEYS = META_KEYS | {
     "finance_projects",
     "finance_disbursements",
     "finance_transactions",
-    "journal_quality_catalog_index",
+    "journal_quality_catalog_Scinago_2025_index",
 }
 
 __all__ = [

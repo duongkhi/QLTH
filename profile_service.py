@@ -46,13 +46,40 @@ def sync_publications_index(profile_key, profile_data):
     index = load_json_from_db(PUBLICATIONS_INDEX_KEY) or {}
 
     # Lấy danh sách bài báo từ các trường có thể có trong hồ sơ
-    pubs = profile_data.get("bai_bao_chuan_scopus", [])
-    if not isinstance(pubs, list):
-        pubs = profile_data.get("cong_bo", [])
-    if not isinstance(pubs, list):
-        pubs = profile_data.get("bai_bao", [])
+    # Ưu tiên trường mới bai_bao_cong_bo (đã chuẩn hóa từ file CV / sync_bai_bao_cong_bo)
+    pubs = profile_data.get("bai_bao_cong_bo", [])
     if not isinstance(pubs, list):
         pubs = []
+
+    # Chuyển đổi cấu trúc bai_bao_cong_bo về cấu trúc chuẩn của publications_index
+    if pubs:
+        converted_pubs = []
+        for p in pubs:
+            if not isinstance(p, dict):
+                continue
+            converted_pubs.append({
+                "title": str(p.get("ten_cong_trinh", "")).strip(),
+                "authors": str(p.get("tac_gia", "") or p.get("authors", "")).strip(),
+                "source_title": str(p.get("noi_cong_bo", "")).strip(),
+                "year": str(p.get("nam_cong_bo", "")).strip(),
+                "doi": str(p.get("doi", "")).strip(),
+                "issn": str(p.get("issn", "")).strip(),
+                "index_type": str(p.get("phan_loai", "")).strip(),
+                "quartile": str(p.get("phan_loai", "")).strip(),
+                "document_type": str(p.get("loai_cong_trinh", "")).strip(),
+            })
+        pubs = converted_pubs
+    else:
+        # Fallback sang các trường cũ nếu không có bai_bao_cong_bo
+        pubs = profile_data.get("bai_bao_chuan_scopus", [])
+        if not isinstance(pubs, list):
+            pubs = profile_data.get("cong_bo", [])
+        if not isinstance(pubs, list):
+            pubs = profile_data.get("bai_bao", [])
+        if not isinstance(pubs, list):
+            pubs = profile_data.get("danh_sach_bai_bao", [])
+        if not isinstance(pubs, list):
+            pubs = []
 
     don_vi = str(profile_data.get("don_vi_cong_tac", "") or profile_data.get("don_vi", "") or "").strip()
 
