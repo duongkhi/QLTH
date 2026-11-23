@@ -16,6 +16,7 @@ from storage import (
 )
 from security import detect_name_from_data, detect_dob_from_data
 from profile_service import merge_and_save
+from user_service import load_auth_config
 from docx_utils import (
     extract_profile_document, ScannedPdfError, smart_truncate,
     render_docx_preview, truncate_profile_for_prompt, fix_tcvn3_text,
@@ -344,29 +345,38 @@ def render_public_profile(ctx: UserContext, target_profile_key: str):
     don_vi = _clean_text(data.get("don_vi_cong_tac")) or _clean_text(data.get("don_vi"))
 
     # =========================================================
-    # HEADER: AVATAR LỚN BÊN TRÁI + HỌ TÊN & CHỨC VỤ BÊN PHẢI
-    # (Đã bỏ nút Setting trùng lặp vì đã có ở Sidebar)
+    # HEADER: HỌ TÊN & CHỨC VỤ (avatar đã chuyển sang sidebar)
     # =========================================================
-    col_av, col_info = st.columns([1.4, 6.2], vertical_alignment="center")
+    # Tra cứu username & vai trò tương ứng với profile key này (để hiển thị @username · ROLE)
+    _profile_username = ""
+    _profile_role = "user"
+    try:
+        from user_service import load_auth_config
+        _auth_cfg = load_auth_config()
+        for _uname, _rec in _auth_cfg.get("users", {}).items():
+            if _rec.get("own_profile") == target_profile_key:
+                _profile_username = _uname
+                _profile_role = _rec.get("role", "user")
+                break
+    except Exception:
+        pass
 
-    with col_av:
-        st.markdown(_render_avatar_html(data, full_name), unsafe_allow_html=True)
-
-    with col_info:
+    st.markdown(
+        f"<h1 style='margin:0 0 4px 0;font-size:2.3rem;line-height:1.2;text-align:left;'>{display_heading}</h1>",
+        unsafe_allow_html=True,
+    )
+    if _profile_username:
+        st.caption(f"@{_profile_username} · {_profile_role.upper()}")
+    if chuc_vu:
         st.markdown(
-            f"<h1 style='margin:0 0 8px 0;font-size:2.3rem;line-height:1.2;'>{display_heading}</h1>",
+            f"<div style='font-size:1.25rem;font-weight:600;color:#60a5fa;margin-bottom:6px;'>{chuc_vu}</div>",
             unsafe_allow_html=True,
         )
-        if chuc_vu:
-            st.markdown(
-                f"<div style='font-size:1.25rem;font-weight:600;color:#60a5fa;margin-bottom:6px;'>{chuc_vu}</div>",
-                unsafe_allow_html=True,
-            )
-        if don_vi:
-            st.markdown(
-                f"<div style='font-size:1.1rem;opacity:0.88;'>🏛️ {don_vi}</div>",
-                unsafe_allow_html=True,
-            )
+    if don_vi:
+        st.markdown(
+            f"<div style='font-size:1.1rem;opacity:0.88;'>🏛️ {don_vi}</div>",
+            unsafe_allow_html=True,
+        )
 
     st.markdown("---")
 

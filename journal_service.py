@@ -5,6 +5,7 @@
 import json
 import re
 import io
+import csv
 import streamlit as st
 import pandas as pd
 
@@ -396,3 +397,85 @@ def normalize_publication_list(pubs: list, catalog: dict) -> list[dict]:
             seen.add(dedup_key)
         result.append(norm)
     return result
+
+
+def reclassify_existing_catalog(csv_path="scimagojr 2025.csv"):
+    """
+    Đọc file SCImago CSV và cập nhật lại phân loại (quartile, index_type, year)
+    cho các mục đã có trong kho danh mục Supabase, khớp theo ISSN/ISBN.
+    Trả về dict thống kê: {"total": N, "updated": M, "not_found": K} hoặc {"error": ...}
+    """
+    import re as _re
+
+    issn_map = {}
+    try:
+        with open(csv_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f, delimiter=";")
+            for row in reader:
+                title = (row.get("Title") or "").strip()
+                issn_raw = (row.get("Issn") or "").strip()
+                quartile = (row.get("SJR Best Quartile") or "").strip()
+                coverage = (row.get("Coverage") or "").strip()
+
+                # Lấy ISSN đầu tiên (có thể có nhiều ISSN cách nhau bởi khoảng trắng)
+                issns = [x.strip() for x in issn_raw.split() if x.strip()]
+                primary_id = issns[0] if issns else ""
+                if not primary_id:
+                    continue
+
+                # Trích xuất năm cuối từ Coverage (ví dụ "1950-2026" -> 2026)
+                year = ""
+                m = _re.findall(r"\b(19|20)\d{2}\b", coverage)
+                if m:
+                    year = m[-1]
+
+                issn_map[primary_id] = {
+                    "quartile": quartile,
+                    "year": year,
+                    "title": title,
+                }
+    except FileNotFoundError:
+        return {"error": f"Không tìm thấy file {csv_path}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+    cat = load_journal_catalog()
+    if not cat:
+        return {"error": "Kho danh mục trống hoặc không đọc được từ Supabase"}
+
+    total = 0
+    updated = 0
+    not_found = 0
+
+    for key, entry in cat.items():
+        total += 1
+        issn = str(entry.get("issn", "")).strip()
+        isbn = str(entry.get("isbn", "")).strip()
+        matched = None
+        if issn and issn in issn_map:
+            matched = issn_map[issn]
+        elif isbn and isbn in issn_map:
+            matched = issn_map[isbn]
+
+        if matched:
+            changed = False
+            if matched.get("quartile") and entry.get("quartile") != matched["quartile"]:
+                entry["quartile"] = matched["quartile"]
+                changed = True
+            if not entry.get("index_type"):
+                entry["index_type"] = "Scopus"
+                changed = True
+            if matched.get("year") and entry.get("year") != matched["year"]:
+                entry["year"] = matched["year"]
+                changed = True
+            if changed:
+                cat[key] = entry
+                updated += 1
+        else:
+            not_found += 1
+
+    ok = save_journal_catalog(cat)
+    if not ok:
+        return {"error": "Lưu catalog thất bại"}
+
+    return {"total": total, "updated": updated, "not_found": not_found}

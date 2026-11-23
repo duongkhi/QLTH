@@ -1,6 +1,7 @@
 # profile_service.py
 from storage import (load_user_profile, save_user_profile,
-                     load_name_mapping, load_json_from_db, save_json_to_db)
+                     load_name_mapping, load_json_from_db, save_json_to_db,
+                     get_all_existing_profiles)
 from security import (_norm, _strip_diacritics, _name_matches_query,
                       identity_matches, _tokenize)
 from name_mapping import update_name_mapping_from_profile
@@ -159,10 +160,13 @@ def _classify_publication(loai_cong_trinh, noi_cong_bo, ten_cong_trinh):
     return "Khác"
 
 
-def _lookup_phan_loai_from_catalog(ten_cong_trinh, noi_cong_bo, doi, issn):
+def _lookup_phan_loai_from_catalog(ten_cong_trinh, noi_cong_bo, doi, issn, nam_cong_bo=None):
     """
-    Tra cứu kho danh mục SCImago 2025 để gán phân loại chất lượng (Scopus Q1-Q4, ...).
+    Tra cứu kho danh mục SCImago để gán phân loại chất lượng (Scopus Q1-Q4, ...).
     Tìm theo ưu tiên: doi -> issn -> tên tạp chí (journal_name / source_title).
+    Nếu có nam_cong_bo, sẽ chọn chuẩn gần năm công bố nhất:
+      - Ưu tiên entry có year <= nam_cong_bo và năm lớn nhất (gần nhất, không vượt quá năm báo).
+      - Nếu không có entry nào <= nam_cong_bo, lấy entry có year lớn nhất (chuẩn mới nhất có sẵn).
     """
     try:
         catalog = load_journal_catalog()
@@ -175,23 +179,47 @@ def _lookup_phan_loai_from_catalog(ten_cong_trinh, noi_cong_bo, doi, issn):
     issn_n = _norm(issn)
     name_n = _norm(noi_cong_bo or ten_cong_trinh)
 
-    matched = None
+    matches = []
     for key, entry in catalog.items():
         if doi_n and _norm(entry.get("doi")) == doi_n:
-            matched = entry
-            break
+            matches.append(entry)
+            continue
         if issn_n and _norm(entry.get("issn")) == issn_n:
-            matched = entry
-            break
+            matches.append(entry)
+            continue
         if name_n and _norm(entry.get("journal_name")) == name_n:
-            matched = entry
-            break
+            matches.append(entry)
+            continue
 
-    if not matched:
+    if not matches:
         return ""
 
-    quartile = str(matched.get("quartile", "")).strip().upper()
-    index_type = str(matched.get("index_type", "")).strip()
+    # Chuẩn hóa năm công bố
+    try:
+        pub_year = int(nam_cong_bo) if nam_cong_bo else None
+    except (ValueError, TypeError):
+        pub_year = None
+
+    def entry_year(entry):
+        try:
+            return int(entry.get("year", 0) or 0)
+        except (ValueError, TypeError):
+            return 0
+
+    # Chọn entry phù hợp nhất
+    if pub_year is not None:
+        # Các entry không vượt quá năm công bố
+        valid = [e for e in matches if entry_year(e) <= pub_year]
+        if valid:
+            chosen = max(valid, key=entry_year)
+        else:
+            # Không có chuẩn cũ hơn/ngang năm -> lấy chuẩn mới nhất có sẵn
+            chosen = max(matches, key=entry_year)
+    else:
+        chosen = matches[0]
+
+    quartile = str(chosen.get("quartile", "")).strip().upper()
+    index_type = str(chosen.get("index_type", "")).strip()
 
     if quartile in ("Q1", "Q2", "Q3", "Q4"):
         it_low = index_type.lower()
@@ -234,14 +262,14 @@ def _normalize_one_publication(entry):
         else:
             dong_tac_gia = True
 
-    # Ưu tiên phan_loai từ Gemini nếu đã có
+    # Ưu tiên phan_loai từ Gemini nếu đã có (không ghi đè nếu đã đánh giá trước đó)
     phan_loai_existing = str(entry.get("phan_loai", "")).strip()
     if phan_loai_existing:
         phan_loai = phan_loai_existing
     else:
         # Thử tra cứu catalog SCImago theo tên tạp chí / DOI / ISSN
         phan_loai = _lookup_phan_loai_from_catalog(
-            ten_cong_trinh, noi_cong_bo, doi, issn
+            ten_cong_trinh, noi_cong_bo, doi, issn, nam_cong_bo
         )
         if not phan_loai:
             phan_loai = _classify_publication(
@@ -455,3 +483,74 @@ def find_identity_matches(new_data, allowed):
             res.append((k, s))
     res.sort(key=lambda x: (0 if x[1] == "strong" else 1, x[0]))
     return res
+
+
+def resync_publications_classification(profile_key=None, force=False):
+    """
+    Chạy lại phân loại cho bài báo khoa học của hồ sơ (hoặc toàn bộ hệ thống).
+
+    - profile_key: nếu None thì chạy cho tất cả hồ sơ có trong Supabase.
+                   nếu là 1 chuỗi thì chỉ chạy cho hồ sơ đó.
+    - force:   nếu False (mặc định), bỏ qua bài báo đã có phân loại
+               (phan_loai không rỗng) -> không đánh giá lại.
+               nếu True, ghi đè phân loại cũ bằng kết quả tra cứu lại
+               (dùng khi trước đó bị nhầm Scopus Q2 sang Q2, v.v.).
+
+    Trả về dict thống kê: {"profiles": N, "publications": M, "updated": K}
+    """
+    from storage import load_user_profile, save_user_profile
+
+    if profile_key:
+        profile_keys = [profile_key]
+    else:
+        profile_keys = get_all_existing_profiles()
+
+    stats = {"profiles": 0, "publications": 0, "updated": 0}
+
+    for pk in profile_keys:
+        data = load_user_profile(pk)
+        if not data:
+            continue
+
+        pubs = data.get("bai_bao_cong_bo", [])
+        if not isinstance(pubs, list):
+            continue
+
+        stats["profiles"] += 1
+        changed = False
+
+        for pub in pubs:
+            if not isinstance(pub, dict):
+                continue
+            stats["publications"] += 1
+
+            existing_ploai = str(pub.get("phan_loai", "")).strip()
+            if existing_ploai and not force:
+                continue  # đã đánh giá rồi, không đánh giá lại
+
+            # Tra cứu lại phân loại theo chuẩn gần năm công bố nhất
+            new_ploai = _lookup_phan_loai_from_catalog(
+                pub.get("ten_cong_trinh", ""),
+                pub.get("noi_cong_bo", ""),
+                pub.get("doi", ""),
+                pub.get("issn", ""),
+                pub.get("nam_cong_bo", ""),
+            )
+            if not new_ploai:
+                new_ploai = _classify_publication(
+                    pub.get("loai_cong_trinh", ""),
+                    pub.get("noi_cong_bo", ""),
+                    pub.get("ten_cong_trinh", ""),
+                )
+
+            if new_ploai and new_ploai != existing_ploai:
+                pub["phan_loai"] = new_ploai
+                changed = True
+                stats["updated"] += 1
+
+        if changed:
+            save_user_profile(pk, data)
+            update_name_mapping_from_profile(pk, data)
+            sync_publications_index(pk, data)
+
+    return stats

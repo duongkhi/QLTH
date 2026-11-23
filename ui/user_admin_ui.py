@@ -28,6 +28,18 @@ def render_user_admin_page(ctx: UserContext):
     st.title("🛡️ Quản Trị Người Dùng & Phân Quyền")
     st.caption("Admin mặc định có toàn bộ công cụ; Manager và User được tùy chỉnh thêm/bớt từng công cụ")
 
+    # Giới hạn chiều rộng selectbox gán hồ sơ, không bị extend full cột
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stSelectbox"] > div[data-baseweb="select"] {
+            max-width: 340px !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     auth_data = load_auth_config()
     users = auth_data.get("users", {})
     all_profiles = get_all_existing_profiles()
@@ -42,7 +54,41 @@ def render_user_admin_page(ctx: UserContext):
             new_pw = c2.text_input("Mật khẩu *", type="password")
             new_r = c3.selectbox("Vai trò:", ["user", "manager", "admin"])
             c4, c5 = st.columns(2)
-            new_p = c4.selectbox("Gán hồ sơ cá nhân:", ["(Tự động theo username)"] + all_profiles)
+            with c4:
+                # Chọn hồ sơ bằng box (button) username, không phải rổ chọn
+                prof_search_new = st.text_input(
+                    "🔍 Tìm hồ sơ",
+                    key="new_user_prof_search",
+                    label_visibility="collapsed",
+                    placeholder="Tìm tên hồ sơ...",
+                )
+                if prof_search_new:
+                    filtered_new = [p for p in all_profiles if prof_search_new.lower() in p.lower()][:5]
+                else:
+                    filtered_new = all_profiles[:5]
+
+                if filtered_new:
+                    n_cols = min(len(filtered_new), 5)
+                    cols_new = st.columns(n_cols)
+                    for idx, p in enumerate(filtered_new):
+                        with cols_new[idx]:
+                            if st.button(
+                                p,
+                                key=f"new_prof_box_{p}",
+                                use_container_width=False,
+                                help=f"Gán hồ sơ {p}",
+                            ):
+                                st.session_state["new_user_selected_prof"] = p
+                                st.rerun()
+
+                selected_prof_new = st.session_state.get("new_user_selected_prof", "")
+                if selected_prof_new:
+                    st.caption(f"✅ Đã chọn: {selected_prof_new}")
+                else:
+                    st.caption("⚪ Chưa chọn hồ sơ (sẽ tự động theo username)")
+
+                # Giá trị ẩn gửi đi khi submit form
+                new_p = selected_prof_new if selected_prof_new else None
             new_t = c5.multiselect(
                 "Cấp quyền Tool (bỏ qua nếu là Admin):",
                 options=list(SYSTEM_TOOLS.keys()),
@@ -138,7 +184,6 @@ def render_user_admin_page(ctx: UserContext):
                 if st.button(
                     f"{display_name}",
                     key=f"goto_profile_{uname}",
-                    width='stretch',
                     help=f"Xem trang công khai của {display_name}",
                 ):
                     st.session_state.viewing_profile = profile_key
@@ -160,13 +205,39 @@ def render_user_admin_page(ctx: UserContext):
             )
 
             cur_prof = urec.get("own_profile") or ""
-            prof_opts = ["(Không gán)"] + all_profiles
-            new_prof = c2.selectbox(
-                "Hồ sơ gắn kết:",
-                options=prof_opts,
-                index=prof_opts.index(cur_prof) if cur_prof in prof_opts else 0,
-                key=f"adm_prof_{uname}",
-            )
+            with c2:
+                prof_search_edit = st.text_input(
+                    "🔍 Tìm hồ sơ",
+                    key=f"prof_search_edit_{uname}",
+                    label_visibility="collapsed",
+                    placeholder="Tìm tên hồ sơ...",
+                )
+                if prof_search_edit:
+                    filtered_edit = [p for p in all_profiles if prof_search_edit.lower() in p.lower()][:5]
+                else:
+                    filtered_edit = all_profiles[:5]
+                # Thêm tùy chọn bỏ gán
+                prof_opts_edit = ["(Không gán)"] + filtered_edit
+
+                # Hiển thị các box username (tối đa 5), click vào chọn
+                if prof_opts_edit:
+                    n_cols = min(len(prof_opts_edit), 5)
+                    cols_edit = st.columns(n_cols)
+                    for idx, p in enumerate(prof_opts_edit):
+                        with cols_edit[idx]:
+                            if st.button(
+                                p,
+                                key=f"edit_prof_box_{uname}_{p}",
+                                use_container_width=False,
+                                help=f"Gán hồ sơ {p} cho {uname}",
+                            ):
+                                st.session_state[f"edit_prof_selected_{uname}"] = p
+                                st.rerun()
+
+                selected_prof_edit = st.session_state.get(f"edit_prof_selected_{uname}", cur_prof)
+                if selected_prof_edit != cur_prof:
+                    st.caption(f"✅ Đã chọn: {selected_prof_edit}")
+                new_prof = selected_prof_edit
 
             is_admin_role = (new_role == "admin")
             cur_tools = list(SYSTEM_TOOLS.keys()) if is_admin_role else [

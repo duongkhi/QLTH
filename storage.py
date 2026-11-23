@@ -17,6 +17,7 @@ SYSTEM_KEY_PREFIXES = (
     "chat_history_",
     "finance_",
     "kb_",
+    "journal_quality_catalog_",
 )
 SYSTEM_EXACT_KEYS = META_KEYS | {
     "admin_rules",
@@ -24,6 +25,7 @@ SYSTEM_EXACT_KEYS = META_KEYS | {
     "finance_projects",
     "finance_disbursements",
     "finance_transactions",
+    "journal_quality_catalog_index",
 }
 
 __all__ = [

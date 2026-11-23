@@ -66,6 +66,12 @@ st.markdown(
     .stFileUpload > div > button {
         font-size: 0.9rem !important;
     }
+    /* Khoảng trắng phía trên để tránh bị che bởi thanh Streamlit khi deploy/rerun */
+    .block-container {
+        padding-top: 2rem !important;
+        padding-bottom: 1rem !important;
+        max-width: none !important;
+    }
     a.profile-link {
         color: #1a73e8;
         font-weight: 600;
@@ -189,8 +195,8 @@ if not st.session_state.get("viewing_profile"):
 # =========================================================
 # 3. BỐ CỘT: SIDEBAR (30%) + KHUNG CHÍNH (70%)
 # =========================================================
-sb_ratio = 0.30
-main_ratio = 0.70
+sb_ratio = 0.20
+main_ratio = 0.80
 
 col_sb, col_main = st.columns([sb_ratio, main_ratio], gap="small")
 

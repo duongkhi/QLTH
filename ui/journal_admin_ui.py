@@ -12,6 +12,7 @@ from journal_service import (
     upsert_journal_catalog,
     delete_journal,
     read_uploaded_file,
+    reclassify_existing_catalog,
     INDEX_TYPES,
     QUARTILES,
     DOCUMENT_TYPES,
@@ -111,6 +112,30 @@ def _render_list_tab(ctx) -> None:
         key="journal_list_editor",
         hide_index=True,
     )
+
+    st.markdown("---")
+    st.subheader("🏷️ Phân loại dữ liệu tạp chí từ SCImago 2025")
+    st.info(
+        "Đọc file `scimagojr 2025.csv` và cập nhật lại phân loại (Q1–Q4, index_type, năm) "
+        "cho các mục đã có trong kho danh mục, khớp theo ISSN/ISBN. "
+        "Chỉ cập nhật mục có dữ liệu mới khác dữ liệu cũ."
+    )
+    if st.button("🚀 Chạy phân loại lại toàn bộ catalog", type="primary", key="btn_reclassify_journal"):
+        with st.spinner("Đang đọc SCImago 2025 và cập nhật phân loại..."):
+            res = reclassify_existing_catalog("scimagojr 2025.csv")
+        if "error" in res:
+            st.error(f"❌ {res['error']}")
+        else:
+            write_system_log(
+                ctx.username,
+                "Phân loại lại danh mục tạp chí từ SCImago 2025",
+                f"tổng={res['total']}, cập nhật={res['updated']}, không khớp={res['not_found']}",
+            )
+            st.success(
+                f"✅ Đã xử lý {res['total']} mục: cập nhật {res['updated']} mục, "
+                f"{res['not_found']} mục không khớp ISSN/ISBN trong file SCImago 2025."
+            )
+            st.rerun()
 
     st.markdown("---")
     st.subheader("4. Xóa mục")

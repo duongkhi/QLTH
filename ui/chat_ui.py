@@ -226,7 +226,13 @@ def _render_chat_fragment(username: str, role: str, allowed_profiles: list, user
         st.session_state.view_mode = "public_profile"
 
     # Reset trạng thái file sau khi gửi (tăng key để clear file_uploader)
-    st.session_state["_chat_file_key"] = st.session_state.get("_chat_file_key", 0) + 1
+    _current_key = st.session_state.get("_chat_file_key", 0)
+    # Xóa giá trị cũ của widget file_uploader khỏi session state
+    # để file đính kèm không còn hiển thị sau khi gửi
+    _old_widget_key = f"chat_file_uploader_{_current_key}"
+    if _old_widget_key in st.session_state:
+        del st.session_state[_old_widget_key]
+    st.session_state["_chat_file_key"] = _current_key + 1
     # Không gọi st.rerun() rõ ràng: Streamlit sẽ tự rerun sau khi form submit,
     # giúp tránh reload toàn bộ trang nhiều lần và giữ tốc độ phản hồi nhanh.
 
