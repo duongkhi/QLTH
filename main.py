@@ -285,6 +285,15 @@ def _render_skill_run_page(ctx: UserContext):
 # 4. KHUNG CHÍNH BÊN PHẢI (70%) - HIỂN THỊ NỘI DUNG THEO TASK
 # =========================================================
 with col_main:
+    # Scroll về đầu trang khi chuyển mục/trang
+    st.markdown(
+        """
+        <script>
+        window.scrollTo(0, 0);
+        </script>
+        """,
+        unsafe_allow_html=True,
+    )
     mode = st.session_state.get(
         "view_mode", "admin_dashboard" if ctx.role == "admin" else "public_profile"
     )

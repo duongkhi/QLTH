@@ -202,7 +202,8 @@ def read_uploaded_file(uploaded) -> pd.DataFrame:
         for sep in [";", ",", "\t", "|"]:
             try:
                 trial = pd.read_csv(
-                    io.BytesIO(raw), dtype=str, sep=sep, engine="python"
+                    io.BytesIO(raw), dtype=str, sep=sep, engine="python",
+                    on_bad_lines="skip",
                 ).fillna("")
                 # Chọn delimiter tạo ra nhiều cột nhất và ổn định nhất
                 n_cols = trial.shape[1]
@@ -224,7 +225,10 @@ def read_uploaded_file(uploaded) -> pd.DataFrame:
             df = best_df
         else:
             # Fallback cuối cùng
-            df = pd.read_csv(io.BytesIO(raw), dtype=str, sep=",", engine="python").fillna("")
+            df = pd.read_csv(
+                io.BytesIO(raw), dtype=str, sep=",", engine="python",
+                on_bad_lines="skip",
+            ).fillna("")
     elif name.endswith((".xlsx", ".xls")):
         df = pd.read_excel(io.BytesIO(raw), dtype=str).fillna("")
     elif name.endswith(".docx"):

@@ -42,7 +42,17 @@ def render_user_admin_page(ctx: UserContext):
 
     auth_data = load_auth_config()
     users = auth_data.get("users", {})
-    all_profiles = get_all_existing_profiles()
+    # Chỉ lấy danh sách username đã đăng ký, không lấy các key catalog/khác trên Supabase
+    all_profiles = sorted(users.keys())
+
+    # Tên hiển thị tùy chỉnh cho các catalog (nếu có)
+    catalog_display_names = load_json_from_db("catalog_display_names") or {}
+    if not isinstance(catalog_display_names, dict):
+        catalog_display_names = {}
+
+    def _prof_label(profile_key: str) -> str:
+        """Hiển thị tên hiển thị nếu có, ngược lại hiển thị key gốc."""
+        return catalog_display_names.get(profile_key, profile_key)
 
 
 
@@ -55,6 +65,7 @@ def render_user_admin_page(ctx: UserContext):
             options=prof_opts_new,
             index=0,
             key="new_user_select_prof",
+            format_func=lambda k: "(Không gán)" if k == "(Không gán)" else _prof_label(k),
         )
 
         if selected_prof_new and selected_prof_new != "(Không gán)":
@@ -194,6 +205,7 @@ def render_user_admin_page(ctx: UserContext):
                     options=prof_opts_edit,
                     index=default_index,
                     key=f"edit_prof_select_{uname}",
+                    format_func=lambda k: "(Không gán)" if k == "(Không gán)" else _prof_label(k),
                 )
 
                 new_prof = selected_prof_edit if selected_prof_edit != "(Không gán)" else ""
