@@ -59,6 +59,6 @@ def _render_template_library_manager(ctx: UserContext):
         with st.container(border=True):
             c1, c2 = st.columns([5, 1])
             c1.markdown(f"**{t['title']}** (`{t['id']}`) · {len(t.get('fields', []))} trường")
-            if c2.button("🗑️ Xóa", key=f"ws_del_{t['id']}", use_container_width=True):
+            if c2.button("🗑️ Xóa", key=f"ws_del_{t['id']}", width='stretch'):
                 delete_form_template(t["id"])
                 st.rerun()

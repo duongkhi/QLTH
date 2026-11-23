@@ -4,9 +4,10 @@ from user_service import (
     load_auth_config,  create_user,
     validate_username, compute_allowed_profiles,
 )
-from security import verify_password           
+from security import verify_password
 from name_mapping import sync_name_mapping
 from storage import write_system_log
+from ui.local_session import save_local_session, clear_local_session
 
 
 def render_auth_screen():
@@ -45,6 +46,11 @@ def _render_login(auth_config):
     with st.form("login_form"):
         u = st.text_input("Tên đăng nhập", value=default_u, key="login_u")
         p = st.text_input("Mật khẩu", type="password", key="login_p")
+        remember = st.checkbox(
+            "Ghi nhớ đăng nhập trên máy này (tự động đăng nhập lần sau)",
+            value=True,
+            key="login_remember",
+        )
         if st.form_submit_button("Đăng nhập", width='stretch'):
             rec = auth_config["users"].get(u)
             if rec and verify_password(p, rec["password_hash"]):
@@ -53,6 +59,10 @@ def _render_login(auth_config):
                     "last_username": u, "chat_history": [],
                     "auth_mode": "login", "active_module": "admin",
                 })
+                if remember:
+                    save_local_session(u, rec["password_hash"])
+                else:
+                    clear_local_session()
                 sync_name_mapping(compute_allowed_profiles(rec))
                 write_system_log(u, "Đăng nhập", "OK")
                 st.rerun()

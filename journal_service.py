@@ -8,9 +8,12 @@ import io
 import streamlit as st
 import pandas as pd
 
-from supabase_adapter import load_json_from_db, save_json_to_db
+from supabase_adapter import load_json_from_db, save_json_to_db, list_all_keys, delete_key_from_db
 
-CATALOG_KEY = "journal_quality_catalog"
+CATALOG_KEY_PREFIX = "journal_quality_catalog_"
+CATALOG_META_KEY = "journal_quality_catalog_index"
+BATCH_SIZE = 3000
+
 
 # 12 trường chuẩn Scopus cho mỗi bài báo
 PUBLICATION_STD_FIELDS = [
@@ -30,14 +33,56 @@ DOCUMENT_TYPES = [
 # ============================================================
 # CRUD kho danh mục chất lượng
 # ============================================================
+def _load_all_catalog_batches() -> dict:
+    """Tải toàn bộ catalog từ các key sharded trên Supabase và gộp lại."""
+    meta = load_json_from_db(CATALOG_META_KEY) or {}
+    batch_keys = meta.get("batch_keys", [])
+
+    # Nếu chưa có meta, tự quét các key có tiền tố
+    if not batch_keys:
+        all_keys = list_all_keys()
+        batch_keys = sorted([k for k in all_keys if k.startswith(CATALOG_KEY_PREFIX)])
+
+    merged = {}
+    for bk in batch_keys:
+        data = load_json_from_db(bk) or {}
+        merged.update(data)
+    return merged
+
+
 def load_journal_catalog() -> dict:
     """Tải toàn bộ kho danh mục từ Supabase. Trả về {ma_duoc_tao_tu_doi_hoac_issn: entry}."""
-    return load_json_from_db(CATALOG_KEY) or {}
+    return _load_all_catalog_batches() or {}
 
 
 def save_journal_catalog(catalog: dict) -> bool:
-    """Lưu toàn bộ kho danh mục lên Supabase."""
-    return save_json_to_db(CATALOG_KEY, catalog)
+    """Lưu toàn bộ kho danh mục lên Supabase (chia thành các batch)."""
+    import math
+
+    # Xóa các batch cũ
+    old_keys = [k for k in list_all_keys() if k.startswith(CATALOG_KEY_PREFIX)]
+    for k in old_keys:
+        delete_key_from_db(k)
+
+    items = list(catalog.items())
+    total_batches = math.ceil(len(items) / BATCH_SIZE)
+    batch_keys = []
+
+    for i in range(0, len(items), BATCH_SIZE):
+        batch = dict(items[i:i + BATCH_SIZE])
+        batch_idx = i // BATCH_SIZE + 1
+        key = f"{CATALOG_KEY_PREFIX}{batch_idx:02d}"
+        ok = save_json_to_db(key, batch)
+        if not ok:
+            return False
+        batch_keys.append(key)
+
+    # Lưu meta key
+    meta_ok = save_json_to_db(CATALOG_META_KEY, {
+        "batch_keys": batch_keys,
+        "total": len(items),
+    })
+    return bool(meta_ok)
 
 
 def list_journals() -> list[dict]:

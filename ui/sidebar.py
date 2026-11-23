@@ -1,14 +1,16 @@
 # ui/sidebar.py
-# Sidebar thu gọn: chỉ có icon quản lý skill, đăng nhập, đăng xuất, avatar.
-# Các thao tác nghiệp vụ khác được điều khiển qua chat.
+# Sidebar bên trái: avatar/tài khoản, quản lý skill, chat box.
+# Có nút thu gọn / mở sidebar. Chiếm khoảng 30% chiều rộng màn hình.
 import streamlit as st
 from config import UserContext
+from ui.local_session import clear_local_session
 from skill_manager import (
     get_user_skill_tree,
     add_skill_to_user_tree,
     generate_skill_from_request,
     create_skill,
 )
+from ui.chat_ui import render_chat_section
 
 
 def _render_avatar(username: str | None, role: str):
@@ -41,120 +43,78 @@ def _render_avatar(username: str | None, role: str):
             unsafe_allow_html=True,
         )
 
+
 def render_sidebar(ctx: UserContext):
-    with st.sidebar:
-        st.markdown("## 🎓 Hệ Thống Hồ Sơ")
-        st.markdown("---")
+    """Render nội dung sidebar."""
+    st.markdown("---")
 
-        # =========================================================
-        # =========================================================
-        # 1. AVATAR & TÀI KHOẢN
-        # =========================================================
-        if not st.session_state.get("logged_in", False):
-            _render_avatar(None, "guest")
-            if st.button("🔐 Đăng nhập", type="primary", width='stretch'):
-                st.session_state.show_login_panel = not st.session_state.get("show_login_panel", False)
-                st.rerun()
-            if st.session_state.get("show_login_panel", False):
-                with st.container(border=True):
-                    from ui.auth_ui import render_auth_screen
-                    render_auth_screen()
-        else:
-            _render_avatar(ctx.username, ctx.role)
-            if st.button("🚪 Đăng xuất", width='stretch'):
-                st.session_state.logged_in = False
-                st.session_state.username = ""
-                st.session_state["_prev_logged_user"] = ""
-                st.session_state.view_mode = "public_profile"
-                st.session_state.show_login_panel = False
-                st.rerun()
+    # =========================================================
+    # 1. AVATAR & TÀI KHOẢN
+    # =========================================================
+    if not st.session_state.get("logged_in", False):
+        _render_avatar(None, "guest")
+        if st.button("🔐 Đăng nhập", type="primary", width='stretch'):
+            st.session_state.show_login_panel = not st.session_state.get("show_login_panel", False)
+            st.rerun()
+        if st.session_state.get("show_login_panel", False):
+            with st.container(border=True):
+                from ui.auth_ui import render_auth_screen
+                render_auth_screen()
+    else:
+        _render_avatar(ctx.username, ctx.role)
+        if st.button("🚪 Đăng xuất", width='stretch'):
+            st.session_state.logged_in = False
+            st.session_state.username = ""
+            st.session_state["_prev_logged_user"] = ""
+            st.session_state.view_mode = "public_profile"
+            st.session_state.show_login_panel = False
+            clear_local_session()
+            st.rerun()
 
-        st.markdown("---")
+    st.markdown("---")
 
-        # =========================================================
-        # 2. QUẢN LÝ SKILL (chỉ khi đã đăng nhập)
-        # =========================================================
-        if st.session_state.get("logged_in", False):
-            st.markdown("### 🛠️ Kỹ năng (Skill)")
+    # =========================================================
+    # 2. CÔNG CỦ QUẢN TRỊ (chỉ admin / manager)
+    # =========================================================
+    if st.session_state.get("logged_in", False) and ctx.role in ("admin", "manager"):
+        st.markdown("### 🛠️ Công cụ quản trị")
 
-            # Nút tạo skill mới bằng AI
-            if st.button("✨ Tạo Skill mới", width='stretch'):
-                st.session_state["_show_create_skill"] = True
-                st.rerun()
+        admin_buttons = [
+            ("💰 Công cụ tài chính", "workspace"),
+            ("📦 Sản phẩm khoa học", "journal_admin"),
+            ("🗄️ Quản lý dữ liệu", "data_management"),
+            ("🛠️ Quản trị Skill", "skill_admin"),
+        ]
 
-            # Form tạo skill (hiện khi bấm nút trên)
-            if st.session_state.get("_show_create_skill", False):
-                with st.form("form_create_skill_sidebar", clear_on_submit=True):
-                    user_request = st.text_area(
-                        "Yêu cầu tạo Skill (tiếng Việt)",
-                        placeholder="Ví dụ: Tính tổng lương tháng của toàn bộ nhân sự và xuất bảng tóm tắt.",
-                        height=80,
-                        key="sidebar_skill_req",
-                    )
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        create_submit = st.form_submit_button("🤖 Tạo bằng AI", width='stretch')
-                    with c2:
-                        cancel_create = st.form_submit_button("❌ Hủy", width='stretch')
-                if cancel_create:
-                    st.session_state["_show_create_skill"] = False
+        # Nút Quản trị người dùng chỉ hiển thị cho Admin (bảo mật cao nhất)
+        if ctx.role == "admin":
+            admin_buttons.insert(0, ("🛡️ Quản trị người dùng", "user_admin"))
+
+        # Hiển thị các nút theo 2 cột một hàng
+        for i in range(0, len(admin_buttons), 2):
+            c1, c2 = st.columns(2)
+            label1, mode1 = admin_buttons[i]
+            with c1:
+                if st.button(label1, key=f"nav_{mode1}", width='stretch'):
+                    st.session_state.view_mode = mode1
+                    st.session_state.pop("_run_skill_name", None)
+                    st.session_state.pop("_run_skill_description", None)
                     st.rerun()
-                if create_submit:
-                    if not user_request or not user_request.strip():
-                        st.warning("Vui lòng nhập yêu cầu tạo Skill.")
-                    else:
-                        with st.spinner("🤖 Đang gọi AI sinh Skill..."):
-                            result = generate_skill_from_request(user_request.strip())
-                        if not result:
-                            st.error("Không thể sinh Skill. Vui lòng kiểm tra API key.")
-                        else:
-                            ok = create_skill(
-                                skill_name=result.get("skill_name", "skill_moi_tao"),
-                                creator=ctx.username,
-                                description=result.get("description", ""),
-                                code=result.get("code", ""),
-                                allowed_users=[ctx.username],
-                            )
-                            if ok:
-                                add_skill_to_user_tree(ctx.username, result["skill_name"], "Khác")
-                                st.success(f"✅ Đã tạo Skill '{result['skill_name']}'!")
-                                st.session_state["_show_create_skill"] = False
-                                st.rerun()
-                            else:
-                                st.error("Tên Skill đã tồn tại hoặc không hợp lệ.")
+            if i + 1 < len(admin_buttons):
+                label2, mode2 = admin_buttons[i + 1]
+                with c2:
+                    if st.button(label2, key=f"nav_{mode2}", width='stretch'):
+                        st.session_state.view_mode = mode2
+                        st.session_state.pop("_run_skill_name", None)
+                        st.session_state.pop("_run_skill_description", None)
+                        st.rerun()
 
-            st.markdown("---")
+    st.markdown("---")
 
-            # =========================================================
-            # 3. CÂY THƯ MỤC SKILL (dropdown nhóm)
-            # =========================================================
-            skill_tree = get_user_skill_tree(ctx.username)
-            if skill_tree:
-                st.markdown("#### 📂 Danh sách Skill của bạn")
-                for group in skill_tree:
-                    folder = group["folder"]
-                    skills = group["skills"]
-                    with st.expander(f"📁 {folder} ({len(skills)})", expanded=False):
-                        for skill in skills:
-                            c1, c2 = st.columns([4, 1])
-                            with c1:
-                                if st.button(
-                                    f"⚙️ {skill['name']}",
-                                    key=f"run_skill_{ctx.username}_{skill['name']}",
-                                    width='stretch',
-                                    help=skill["description"],
-                                ):
-                                    st.session_state["_run_skill_name"] = skill["name"]
-                                    st.session_state["_run_skill_description"] = skill["description"]
-                                    st.session_state.view_mode = "skill_run"
-                                    st.rerun()
-                            with c2:
-                                if st.button("🗑️", key=f"del_skill_{ctx.username}_{skill['name']}", width='stretch'):
-                                    from skill_manager import remove_skill_from_user_tree
-                                    remove_skill_from_user_tree(ctx.username, skill["name"])
-                                    st.rerun()
-            else:
-                st.caption("Bạn chưa có Skill nào. Hãy bấm 'Tạo Skill mới' để bắt đầu.")
+    # =========================================================
+    # 4. CHAT BOX (đặt trong sidebar)
+    # =========================================================
+    render_chat_section(ctx)
 
     st.markdown("---")
     st.caption("Phiên bản: **v2.0.1** · Hệ Thống Hồ Sơ & AI Agent")

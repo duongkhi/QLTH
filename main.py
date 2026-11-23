@@ -1,4 +1,4 @@
-# main.py
+﻿# main.py
 import sys
 import asyncio
 
@@ -24,10 +24,13 @@ from ui.sidebar import render_sidebar
 from ui.profile_ui import render_public_profile, render_settings_page
 from ui.workspace_ui import render_workspace_module
 from ui.user_admin_ui import render_user_admin_page
-from ui.chat_ui import render_chat_section
 from ui.skill_ui import render_skill_page
-from skill_manager import ensure_statistics_skill, run_skill
+from skill_manager import ensure_statistics_skill, ensure_quan_ly_lich_lam_viec_skill, run_skill
 from ui.journal_admin_ui import render_journal_admin_page
+from ui.admin_dashboard import render_admin_dashboard
+from ui.notification_ui import render_notification_page
+from ui.local_session import load_local_session, clear_local_session
+from name_mapping import sync_name_mapping
 
 st.set_page_config(
     page_title="Hệ Thống Hồ Sơ & AI Agent",
@@ -35,18 +38,33 @@ st.set_page_config(
     layout="wide",
 )
 
-# CSS cố định Chatbox bên phải luôn nổi và làm đẹp link hồ sơ
-st.markdown("""<style>
-    html, body, [class*="css"] { font-size: 20px !important; }
-    .stMarkdown p, .stMarkdown li { font-size: 1.15rem !important; line-height: 1.7 !important; }
-    .stTextInput input { font-size: 18px !important; padding: 10px 12px !important; }
-    .stButton button { font-size: 17px !important; padding: 8px 14px !important; }
-    .stCaption, .stCaption p { font-size: 15px !important; }
-    .stFileUpload > div > button { font-size: 16px !important; }
-    div[data-testid="stHorizontalBlock"] > div:nth-child(2) {
-        position: sticky;
-        top: 3.5rem;
-        align-self: flex-start;
+# CSS cố định: font size responsive theo từng màn hình, layout sidebar/chính
+st.markdown(
+    """
+    <style>
+    :root {
+        --base-font: 16px;
+    }
+    html, body, [class*="css"] {
+        font-size: var(--base-font) !important;
+    }
+    .stMarkdown p, .stMarkdown li {
+        font-size: 1rem !important;
+        line-height: 1.6 !important;
+    }
+    .stTextInput input {
+        font-size: 1rem !important;
+        padding: 8px 10px !important;
+    }
+    .stButton button {
+        font-size: 0.95rem !important;
+        padding: 7px 12px !important;
+    }
+    .stCaption, .stCaption p {
+        font-size: 0.85rem !important;
+    }
+    .stFileUpload > div > button {
+        font-size: 0.9rem !important;
     }
     a.profile-link {
         color: #1a73e8;
@@ -58,16 +76,68 @@ st.markdown("""<style>
         color: #0d47a1;
         border-bottom: 1px solid #0d47a1;
     }
-</style>""", unsafe_allow_html=True)
+    /* Responsive font size theo màn hình */
+    @media (max-width: 768px) {
+        html, body, [class*="css"] {
+            font-size: 14px !important;
+        }
+        .stButton button {
+            font-size: 0.85rem !important;
+            padding: 6px 10px !important;
+        }
+        .stMarkdown p, .stMarkdown li {
+            font-size: 0.95rem !important;
+        }
+    }
+    @media (min-width: 1200px) {
+        html, body, [class*="css"] {
+            font-size: 18px !important;
+        }
+        .stButton button {
+            font-size: 1rem !important;
+        }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 init_session_state()
 
-# Đăng ký Skill thống kê bài báo mặc định (nếu chưa có)
+# =========================================================
+# TỰ ĐỘNG KHÔI PHỤC PHIÊN ĐĂNG NHẬP TỪ MÁY CỦA BẠN
+# (nếu trước đó đã chọn "Ghi nhớ đăng nhập" và chưa hết hạn)
+# =========================================================
+if not st.session_state.get("logged_in", False):
+    ls = load_local_session()
+    if ls:
+        try:
+            auth_config = load_auth_config()
+            rec = auth_config.get("users", {}).get(ls["username"])
+            if rec and rec.get("password_hash") == ls["password_hash"]:
+                st.session_state.update({
+                    "logged_in": True,
+                    "username": ls["username"],
+                    "last_username": ls["username"],
+                    "chat_history": [],
+                    "auth_mode": "login",
+                    "active_module": "admin",
+                })
+                sync_name_mapping(compute_allowed_profiles(rec))
+        except Exception:
+            # Nếu Supabase/lỗi mạng, bỏ qua tự động đăng nhập;
+            # người dùng vẫn có thể đăng nhập thủ công bình thường.
+            clear_local_session()
+
+# Đăng ký Skill mặc định khi khởi động
 ensure_statistics_skill()
+ensure_quan_ly_lich_lam_viec_skill()
 
 if st.session_state.get("pending_toast"):
     st.toast(st.session_state.pending_toast, icon="🎉")
     st.session_state.pending_toast = None
+
+# Trạng thái thu gọn/mở sidebar (đã bỏ)
 
 # =========================================================
 # 1. XỬ LÝ LINK CHUYỂN TRANG HỒ SƠ (?profile=...)
@@ -80,7 +150,7 @@ if qp_profile:
     st.rerun()
 
 # =========================================================
-# 2. XÂY DỰNG USER CONTEXT & TỰ ĐỘNG VỀ TRANG CÁ NHÂN KHI SIGN IN
+# 2. XÂY DỰNG USER CONTEXT & TỰ ĐỘNG VỀ TRANG PHÙ HỢP
 # =========================================================
 is_logged_in = st.session_state.get("logged_in", False)
 username = st.session_state.get("username", "") if is_logged_in else ""
@@ -100,10 +170,9 @@ ctx = UserContext(
 prev_user = st.session_state.get("_prev_logged_user", "")
 if is_logged_in and username != prev_user:
     st.session_state["_prev_logged_user"] = username
-    # Admin mở trang làm việc gần nhất, user thường mở trang cá nhân
     if ctx.role == "admin":
-        last_mode = st.session_state.get(f"last_view_mode_{username}", "workspace")
-        st.session_state.view_mode = last_mode
+        # Admin mặc định vào trang Quản trị người dùng
+        st.session_state.view_mode = "user_admin"
     else:
         st.session_state.viewing_profile = ctx.own_profile or ""
         st.session_state.view_mode = "public_profile"
@@ -118,22 +187,28 @@ if not st.session_state.get("viewing_profile"):
     st.session_state.viewing_profile = ctx.own_profile or (all_p[0] if all_p else "")
 
 # =========================================================
-# 3. CONTROL BÊN TRÁI (SIDEBAR)
+# 3. BỐ CỘT: SIDEBAR (30%) + KHUNG CHÍNH (70%)
 # =========================================================
-render_sidebar(ctx)
+sb_ratio = 0.30
+main_ratio = 0.70
+
+col_sb, col_main = st.columns([sb_ratio, main_ratio], gap="small")
+
+with col_sb:
+    render_sidebar(ctx)
 
 # Lưu last_view_mode cho admin (để khôi phục khi đăng nhập lại)
 if is_logged_in and ctx.role == "admin":
-    current_mode = st.session_state.get("view_mode", "public_profile")
+    current_mode = st.session_state.get("view_mode", "admin_dashboard")
     st.session_state[f"last_view_mode_{username}"] = current_mode
 
 # =========================================================
-# 4. KHUNG CHÍNH (GIỮA) + CHATBOX CỐ ĐỊNH (BÊN PHẢI)
+# 4. KHUNG CHÍNH BÊN PHẢI (70%) - HIỂN THỊ NỘI DUNG THEO TASK
 # =========================================================
-col_main, col_chat = st.columns([7.2, 2.8], gap="medium")
-
 with col_main:
-    mode = st.session_state.get("view_mode", "public_profile")
+    mode = st.session_state.get(
+        "view_mode", "admin_dashboard" if ctx.role == "admin" else "public_profile"
+    )
 
     if not is_logged_in and mode != "public_profile":
         mode = "public_profile"
@@ -154,6 +229,27 @@ with col_main:
             render_user_admin_page(ctx)
         else:
             st.error("🚫 Chỉ quản trị viên mới có quyền truy cập trang này.")
+    elif mode == "admin_dashboard":
+        if ctx.role == "admin":
+            render_admin_dashboard(ctx)
+        else:
+            st.error("🚫 Chỉ quản trị viên mới có quyền truy cập trang này.")
+    elif mode == "data_management":
+        if ctx.role == "admin":
+            st.title("🗄️ Quản lý dữ liệu")
+            st.info("Chức năng quản lý dữ liệu đang phát triển.")
+        else:
+            st.error("🚫 Chỉ quản trị viên mới có quyền truy cập trang này.")
+    elif mode == "notification":
+        if ctx.role == "admin":
+            render_notification_page(ctx)
+        else:
+            st.error("🚫 Chỉ quản trị viên mới có quyền truy cập trang này.")
+    elif mode == "skill_admin":
+        if ctx.role == "admin":
+            render_skill_page(ctx)
+        else:
+            st.error("🚫 Chỉ quản trị viên mới có quyền truy cập trang này.")
     elif mode == "skill":
         render_skill_page(ctx)
     elif mode == "skill_run":
@@ -163,11 +259,6 @@ with col_main:
             render_journal_admin_page(ctx)
         else:
             st.error("🚫 Chỉ quản trị viên mới có quyền truy cập trang này.")
-
-with col_chat:
-    with st.container(height=680, border=True):
-        render_chat_section(ctx)
-
 
 # ============================================================
 # TRANG CHẠY SKILL TỪ SIDEBAR

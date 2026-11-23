@@ -38,7 +38,6 @@ def _build_status_text(used: bool, status: str | None, p_used: str | None) -> st
     return None
 
 
-@st.fragment
 def _render_chat_fragment(username: str, role: str, allowed_profiles: list, user_record: dict):
     """Khung chat bên phải: bố cục 3 tầng tách biệt, không đè chữ."""
     # TẦNG 1: TIÊU ĐỀ & NÚT XÓA
@@ -58,7 +57,7 @@ def _render_chat_fragment(username: str, role: str, allowed_profiles: list, user
         st.session_state[cache_key] = []
 
     # TẦNG 2: KHUNG HIỂN THỊ TIN NHẮN (chiều cao vừa phải để không bị thanh nhập đè)
-    chat_box = st.container(height=360, border=True)
+    chat_box = st.container(height=300, border=True)
     with chat_box:
         if not st.session_state[cache_key]:
             st.info("Xin chào! Bạn có thể hỏi thông tin về bất kỳ thành viên nào, đề tài hoặc quy chế.")
@@ -89,19 +88,25 @@ def _render_chat_fragment(username: str, role: str, allowed_profiles: list, user
                 key="btn_dl_chat_excel",
             )
 
-    # TẦNG 3: KHU VỰC ĐÍNH KÈM FILE & NHẬP CÂU HỎI (tách khối độc lập phía dưới)
-    with st.expander("📎 Đính kèm file (CV / Excel)", expanded=False):
-        uploaded_file = st.file_uploader(
-            "Chọn file (.docx, .pdf, .xlsx)",
-            type=["docx", "pdf", "xlsx"],
-            label_visibility="collapsed",
-            key="chat_file_uploader",
-        )
+    # TẦNG 3: KHU VỰC ĐÍNH KÈM FILE & NHẬP CÂU HỎI (chỉ hiển thị khi đã đăng nhập)
+    if st.session_state.get("logged_in", False):
+        with st.expander("📎 Đính kèm file (CV / Excel)", expanded=False):
+            uploaded_file = st.file_uploader(
+                "Chọn file (.docx, .pdf, .xlsx)",
+                type=["docx", "pdf", "xlsx"],
+                label_visibility="collapsed",
+                key=f"chat_file_uploader_{st.session_state.get('_chat_file_key', 0)}",
+            )
 
-    if uploaded_file is not None:
-        st.caption(f"📄 File đính kèm: **{uploaded_file.name}**")
+        if uploaded_file is not None:
+            st.caption(f"📄 File đính kèm: **{uploaded_file.name}**")
+    else:
+        uploaded_file = None
 
-    # Dùng st.form thay cho st.chat_input để không bao giờ bị ghim đè lên nội dung phía trên
+    # Form chứa cả ô nhập và nút Gửi cùng hàng. Nhấn Enter trong ô nhập cũng
+    # gửi form (vì có nút submit trong form). clear_on_submit=True sẽ tự xóa
+    # ô nhập sau khi gửi, không cần can thiệp session_state sau khi widget đã
+    # được instantiate (tránh lỗi StreamlitWidgetAlreadyInstantiatedError).
     with st.form(key="chat_input_form", clear_on_submit=True, border=False):
         c_txt, c_btn = st.columns([4.5, 1.2], vertical_alignment="center")
         with c_txt:
@@ -109,16 +114,19 @@ def _render_chat_fragment(username: str, role: str, allowed_profiles: list, user
                 "Câu hỏi",
                 placeholder="Nhập câu hỏi và bấm Enter...",
                 label_visibility="collapsed",
+                key="_chat_input_text",
             )
         with c_btn:
-            submitted = st.form_submit_button("Gửi", width="stretch", type="primary")
+            submitted = st.form_submit_button(
+                "Gửi", width="stretch", type="primary"
+            )
 
     # ---------- XỬ LÝ KHI NGƯỜI DÙNG GỬI ----------
-    if not submitted or not user_q or not user_q.strip():
+    if not submitted:
         return
 
     hist = list(st.session_state[cache_key])
-    user_text = user_q.strip()
+    user_text = (user_q or "").strip()
 
     file_bytes = None
     filename = None
@@ -126,15 +134,28 @@ def _render_chat_fragment(username: str, role: str, allowed_profiles: list, user
         file_bytes = uploaded_file.getvalue()
         filename = uploaded_file.name
 
-    st.session_state[cache_key].append({"role": "user", "content": user_text})
+    # Nếu không có text và không có file thì không gửi (bảo vệ lại)
+    if not user_text and not file_bytes:
+        return
+
+    # Nội dung hiển thị: gắn text với file thành một request
+    display_content = user_text
+    if file_bytes:
+        display_content = f"{user_text}\n📎 [Đính kèm file: {filename}]" if user_text else f"📎 [Đính kèm file: {filename}]"
+
+    st.session_state[cache_key].append({"role": "user", "content": display_content})
 
     with chat_box:
         with st.chat_message("user"):
-            st.markdown(user_text)
+            st.markdown(display_content)
 
         with st.chat_message("assistant"):
-            status_placeholder = st.empty()
-            status_placeholder.markdown("⏳ Đang xử lý...")
+            # --- Hiển thị tiến độ khi đang phân tích ---
+            progress_container = st.empty()
+            progress_container.markdown(
+                "⏳ **Đang phân tích...** Đang gửi yêu cầu lên AI, vui lòng đợi trong giây lát."
+            )
+            prog_bar = st.progress(0)
 
             try:
                 answer, used, p_used, status = chat_with_ai(
@@ -148,22 +169,48 @@ def _render_chat_fragment(username: str, role: str, allowed_profiles: list, user
                     filename=filename,
                 )
             except Exception as e:
+                progress_container.empty()
+                prog_bar.empty()
                 answer = f"❌ Lỗi: {e}"
                 used, p_used, status = False, None, "error"
                 write_system_log(username or "guest", "Chat", f"Lỗi ({e})")
 
+            # Xóa thanh tiến độ sau khi xong
+            progress_container.empty()
+            prog_bar.empty()
+
+            # --- Stream câu trả lời từ AI ---
             full_answer = ""
             chunk_size = 20
+            answer_placeholder = st.empty()
             for idx in range(0, len(answer), chunk_size):
                 piece = answer[idx : idx + chunk_size]
                 full_answer += piece
-                status_placeholder.markdown(full_answer + "▌")
+                answer_placeholder.markdown(full_answer + "▌")
                 time.sleep(0.01)
 
             linked_final = linkify_profile_names(full_answer)
-            status_placeholder.markdown(linked_final, unsafe_allow_html=True)
+            answer_placeholder.markdown(linked_final, unsafe_allow_html=True)
 
-            if msg_status := _build_status_text(used, status, p_used):
+            # --- Hiện kết quả đánh giá chi tiết (sinh động) ---
+            if file_bytes:
+                st.caption(f"📎 File đã xử lý: **{filename}**")
+
+            if used and status == "updated" and p_used:
+                st.success(
+                    f"✅ Đã cập nhật hồ sơ **{p_used}** từ dữ liệu đính kèm."
+                )
+            elif used and status == "no_match":
+                st.info(
+                    "📄 Đã phân tích xong, nhưng không khớp với hồ sơ nào trong hệ thống."
+                )
+            elif used and status == "no_permission" and p_used:
+                st.warning(
+                    f"⚠️ Không có quyền ghi vào hồ sơ **{p_used}**."
+                )
+            elif status == "error":
+                st.error("❌ Có lỗi xảy ra khi phân tích.")
+            elif msg_status := _build_status_text(used, status, p_used):
                 st.caption(msg_status)
 
     st.session_state[cache_key].append({
@@ -173,7 +220,15 @@ def _render_chat_fragment(username: str, role: str, allowed_profiles: list, user
         "profile_used": p_used,
         "tool_status": status,
     })
-    st.rerun()
+    # Nếu AI tìm thấy hồ sơ/CV của một người, tự động chuyển cửa sổ bên phải sang trang cá nhân đó
+    if p_used:
+        st.session_state.viewing_profile = p_used
+        st.session_state.view_mode = "public_profile"
+
+    # Reset trạng thái file sau khi gửi (tăng key để clear file_uploader)
+    st.session_state["_chat_file_key"] = st.session_state.get("_chat_file_key", 0) + 1
+    # Không gọi st.rerun() rõ ràng: Streamlit sẽ tự rerun sau khi form submit,
+    # giúp tránh reload toàn bộ trang nhiều lần và giữ tốc độ phản hồi nhanh.
 
 
 def render_chat_section(ctx: UserContext):

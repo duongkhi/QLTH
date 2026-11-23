@@ -3,7 +3,7 @@ import json
 import re as _re
 import streamlit as st
 
-from ai_client import _generate_with_retry
+from ai_client import _generate_with_retry, generate_gemini_text_real
 from config import META_KEYS, UserContext
 from security import detect_name_from_data, detect_dob_from_data
 from storage import (
@@ -424,20 +424,35 @@ def _extract_file_text(file_bytes: bytes, filename: str) -> str:
 
 
 def _build_file_extract_prompt(raw_text: str, filename: str) -> str:
-    """Prompt yêu cầu AI trích xuất thông tin từ file thành JSON chuẩn."""
-    return (
-        f"Trích xuất TOÀN BỘ thông tin từ file '{filename}' thành JSON "
-        f"(key viết thường, gạch dưới, tiếng Việt không dấu). Trường nào không có thì để null hoặc bỏ qua.\n\n"
-        f"Bắt buộc có:\n"
-        f"- 'ho_va_ten', 'hoc_ham', 'hoc_vi', 'chuc_vu', 'don_vi_cong_tac', 'ngay_sinh' (DD/MM/YYYY) nếu có.\n"
-        f"- 'huong_nghien_cuu': đoạn mô tả hướng nghiên cứu chính nếu có.\n"
-        f"- 'cong_bo': danh sách mảng các công trình/bài báo khoa học "
-        f'(mỗi phần tử là dict {{"ten_bai_bao", "tac_gia", "tap_chi", "nam"}}).\n'
-        f"- 'de_tai': danh sách mảng các đề tài nghiên cứu "
-        f'(mỗi phần tử là dict {{"ten_de_tai", "ma_so", "vai_tro", "thoi_gian", "trang_thai"}}).\n\n'
-        f"Văn bản:\n'''{smart_truncate(raw_text)}'''\n"
-    )
-
+    """Prompt yeu cau AI trich xuat thong tin tu file thanh JSON chuan,
+    du chi tiet de dong bo truc tiep vao truong bai_bao_cong_bo."""
+    parts = []
+    parts.append(f"Trich xuat TOAN BO thong tin tu file '{filename}' thanh JSON ")
+    parts.append("(key viet thuong, gach duong, tieng Viet khong dau). Truong nao khong co thi de null hoac bo qua.\n\n")
+    parts.append("THONG TIN CA NHAN (bat buoc neu co):\n")
+    parts.append("- 'ho_va_ten', 'hoc_ham', 'hoc_vi', 'chuc_vu', 'don_vi_cong_tac', 'ngay_sinh' (DD/MM/YYYY)\n")
+    parts.append("- 'huong_nghien_cuu': doan mo tro huong nghien cuu chinh\n\n")
+    parts.append("DANH SACH BAI BAO / CONG TRINH KHOA HOC ('cong_bo'):\n")
+    parts.append("Moi phan tu la mot dict co cac truong sau:\n")
+    parts.append("- 'ten_cong_trinh': ten bai bao/cong trinh\n")
+    parts.append("- 'nam_cong_bo': nam cong bo (chi so, vi du 2025)\n")
+    parts.append("- 'noi_cong_bo': ten tap chi, hoi nghi, xuat ban\n")
+    parts.append("- 'loai_cong_trinh': loai cong trinh (vi du: 'Tap chi quoc te', 'Hoi nghi quoc te', 'Tap chi trong nuoc', 'Hoi nghi trong nuoc')\n")
+    parts.append("- 'phan_loai': phan loai chat luong (Scopus Q1/Q2/Q3/Q4, ISI/SCI-EE Q1-Q4, SCI Q1-Q4, Tap chi quoc te, Hoi nghi quoc te, Tap chi trong nuoc, Hoi nghi trong nuoc, Khac)\n")
+    parts.append("- 'vai_tro': vai tro tac gia ('Tac gia dau', 'Tac gia lien he', 'Dong tac gia')\n")
+    parts.append("- 'doi': ma DOI neu co\n")
+    parts.append("- 'issn': ma ISSN neu co\n\n")
+    parts.append("DANH SACH DE TAI ('de_tai'):\n")
+    parts.append("Moi phan tu la dict {\"ten_de_tai\", \"ma_so\", \"vai_tro\", \"thoi_gian\", \"trang_thai\"}\n\n")
+    parts.append("QUY TAC PHAN LOAI (quan trong):\n")
+    parts.append("- Neu tap chi co Scopus/ISI/SCI va ghi Q1 -> phan loai 'Scopus Q1' (hoac 'ISI/SCI-EE Q1', 'SCI Q1')\n")
+    parts.append("- Q2 -> 'Scopus Q2', Q3 -> 'Scopus Q3', Q4 -> 'Scopus Q4'\n")
+    parts.append("- Neu la hoi nghi quoc te khong co chi so -> 'Hoi nghi quoc te'\n")
+    parts.append("- Neu la hoi nghi trong nuoc -> 'Hoi nghi trong nuoc'\n")
+    parts.append("- Neu la tap chi quoc te khong co chi so -> 'Tap chi quoc te'\n")
+    parts.append("- Neu la tap chi trong nuoc -> 'Tap chi trong nuoc'\n\n")
+    parts.append("VAN BAN FILE:\n'''" + smart_truncate(raw_text) + "'''\n")
+    return "".join(parts)
 
 def _match_profile_to_supabase(extracted: dict, allowed_profiles: list, username: str):
     """So sánh dữ liệu trích xuất từ file với hồ sơ có sẵn trên Supabase."""
@@ -483,9 +498,14 @@ def _handle_file(user_q: str, file_bytes: bytes, filename: str,
 
     prompt = _build_file_extract_prompt(raw_text, filename)
     try:
-        extracted_text = _generate_with_retry(prompt)
+        extracted_text = generate_gemini_text_real(prompt)
         if not extracted_text:
-            return ("❌ AI không trích xuất được dữ liệu từ file.", used, p_used, "error")
+            return (
+                "⚠️ Đã đính kèm file nhưng hệ thống chưa cấu hình GEMINI_API_KEY, "
+                "hoặc Nemotron không hỗ trợ phân tích file đính kèm. "
+                "Vui lòng nhập câu hỏi văn bản thay vì đính kèm file, hoặc liên hệ Admin để cấu hình GEMINI_API_KEY.",
+                used, p_used, "error",
+            )
         cleaned = extracted_text.strip()
         if cleaned.startswith("```json"):
             cleaned = cleaned[7:]

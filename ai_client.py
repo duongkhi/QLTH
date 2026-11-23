@@ -102,39 +102,54 @@ def generate_gemini_text_real(prompt: str) -> str | None:
     Yêu cầu GEMINI_API_KEY trong st.secrets hoặc biến môi trường.
     """
     if not _GEMINI_AVAILABLE:
+        print("[DEBUG Gemini] _GEMINI_AVAILABLE = False")
         return None
 
     api_key = ""
     try:
         api_key = st.secrets.get("GEMINI_API_KEY", "")
-    except Exception:
+        print(f"[DEBUG Gemini] st.secrets.get GEMINI_API_KEY: {'tim thay key (do dai {len(api_key)})' if api_key else 'KHONG TIM THAY KEY'}")
+    except Exception as e:
+        print(f"[DEBUG Gemini] st.secrets loi: {e}")
         pass
     if not api_key:
         api_key = os.environ.get("GEMINI_API_KEY", "")
+        print(f"[DEBUG Gemini] os.environ.get GEMINI_API_KEY: {'tim thay key' if api_key else 'KHONG TIM THAY KEY'}")
     if not api_key:
+        print("[DEBUG Gemini] Khong co GEMINI_API_KEY nao, tra ve None")
         return None
 
     try:
         client = genai.Client(api_key=api_key)
         for model_name in ("gemini-3.8-flash", "gemini-3.5-flash-lite"):
             try:
+                # gemini-3.8-flash khong ho tro ThinkingLevel.MINIMAL -> dung LOW
+                thinking = (
+                    genai_types.ThinkingLevel.LOW
+                    if "3.8" in model_name
+                    else genai_types.ThinkingLevel.MINIMAL
+                )
                 resp = client.models.generate_content(
                     model=model_name,
                     contents=prompt,
                     config=genai_types.GenerateContentConfig(
                         thinking_config=genai_types.ThinkingConfig(
-                            thinking_level=genai_types.ThinkingLevel.MINIMAL
+                            thinking_level=thinking
                         )
                     ),
                 )
                 if resp.text:
+                    print("[DEBUG Gemini] Goi Gemini thanh cong")
                     return resp.text
             except GeminiAPIError as e:
                 if e.code in (429, 503, 404):
+                    print(f"[DEBUG Gemini] Model {model_name} loi {e.code}, thu model tiep theo")
                     continue
                 raise
-    except Exception:
+    except Exception as e:
+        print(f"[DEBUG Gemini] Loi ngoai le: {e}")
         return None
+    print("[DEBUG Gemini] Khong co model nao tra ve ket qua")
     return None
 
 

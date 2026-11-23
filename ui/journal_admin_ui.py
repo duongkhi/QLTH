@@ -6,7 +6,6 @@ import streamlit as st
 import pandas as pd
 
 from journal_service import (
-    CATALOG_KEY,
     load_journal_catalog,
     save_journal_catalog,
     list_journals,
@@ -63,7 +62,7 @@ def _render_upload_tab(ctx) -> None:
         edited = st.data_editor(
             df,
             num_rows="dynamic",
-            use_container_width=True,
+            width='stretch',
             key="journal_preview_editor",
         )
 
@@ -108,7 +107,7 @@ def _render_list_tab(ctx) -> None:
 
     st.data_editor(
         df,
-        use_container_width=True,
+        width='stretch',
         key="journal_list_editor",
         hide_index=True,
     )

@@ -225,6 +225,95 @@ def _generate_ai_research_summary(profile_key: str, data: dict) -> str:
 
 
 # =====================================================================
+# HELPER: RENDER BẢNG CÔNG BỐ KHOA HỌC
+# =====================================================================
+def _publication_to_row(idx: int, item) -> dict:
+    """Chuẩn hóa 1 công bố thành dict hàng bảng (dùng cho st.dataframe)."""
+    if not isinstance(item, dict):
+        return {
+            "STT": idx,
+            "Tên công trình": str(item),
+            "Nơi công bố": "",
+            "Năm": "",
+            "Loại công bố": "",
+            "Phân loại": "",
+            "Vai trò": "",
+            "DOI": "",
+            "ISSN": "",
+        }
+
+    vai_tro = _clean_text(item.get("vai_tro"))
+    if not vai_tro:
+        if item.get("tac_gia_dau"):
+            vai_tro = "Tác giả đầu"
+        elif item.get("tac_gia_lien_he"):
+            vai_tro = "Tác giả liên hệ"
+        elif item.get("dong_tac_gia"):
+            vai_tro = "Đồng tác giả"
+
+    return {
+        "STT": idx,
+        "Tên công trình": (
+            _clean_text(item.get("ten_cong_trinh"))
+            or _clean_text(item.get("ten_bai_bao"))
+            or _clean_text(item.get("ten"))
+            or _clean_text(item.get("title"))
+            or ""
+        ),
+        "Nơi công bố": (
+            _clean_text(item.get("noi_cong_bo"))
+            or _clean_text(item.get("tap_chi"))
+            or _clean_text(item.get("source_title"))
+            or ""
+        ),
+        "Năm": str(
+            _clean_text(item.get("nam_cong_bo"))
+            or _clean_text(item.get("nam"))
+            or _clean_text(item.get("year"))
+            or ""
+        ),
+        "Loại công bố": (
+            _clean_text(item.get("loai_cong_trinh"))
+            or _clean_text(item.get("document_type"))
+            or ""
+        ),
+        "Phân loại": _clean_text(item.get("phan_loai")) or "",
+        "Vai trò": vai_tro,
+        "DOI": _clean_text(item.get("doi")) or "",
+        "ISSN": _clean_text(item.get("issn")) or "",
+    }
+
+
+def _render_publication_table(pubs, exclude_key: str = None):
+    """Render danh sách công bố dưới dạng bảng Streamlit."""
+    rows = [_publication_to_row(i + 1, p) for i, p in enumerate(pubs)]
+    if not rows:
+        return
+    st.dataframe(
+        rows,
+        width='stretch',
+        hide_index=True,
+        column_config={
+            "STT": st.column_config.NumberColumn("STT", width="small"),
+            "Tên công trình": st.column_config.TextColumn(
+                "Tên công trình", width="large"
+            ),
+            "Nơi công bố": st.column_config.TextColumn(
+                "Nơi công bố", width="medium"
+            ),
+            "Năm": st.column_config.TextColumn("Năm", width="small"),
+            "Loại công bố": st.column_config.TextColumn(
+                "Loại công bố", width="medium"
+            ),
+            "Phân loại": st.column_config.TextColumn("Phân loại", width="medium"),
+            "Vai trò": st.column_config.TextColumn("Vai trò", width="medium"),
+            "DOI": st.column_config.TextColumn("DOI", width="medium"),
+            "ISSN": st.column_config.TextColumn("ISSN", width="medium"),
+        },
+    )
+
+
+# =====================================================================
 # 1. TRANG CÁ NHÂN PUBLIC (BỐ CỤC CHUẨN CV KHOA HỌC)
 # =====================================================================
 def render_public_profile(ctx: UserContext, target_profile_key: str):
@@ -369,7 +458,7 @@ def render_public_profile(ctx: UserContext, target_profile_key: str):
         )
 
     pub_list = []
-    for k in ("san_pham_khoa_hoc", "cong_bo", "bai_bao", "cong_trinh"):
+    for k in ("bai_bao_cong_bo", "san_pham_khoa_hoc", "cong_bo", "bai_bao", "cong_trinh"):
         val = data.get(k)
         if isinstance(val, list):
             pub_list.extend(val)
@@ -383,38 +472,8 @@ def render_public_profile(ctx: UserContext, target_profile_key: str):
             filtered_pubs.append(item)
 
     if filtered_pubs:
-        st.markdown("#### 📄 Công bố khoa học & Sản phẩm trí tuệ")
-        for idx, item in enumerate(filtered_pubs, 1):
-            if isinstance(item, dict):
-                title = (
-                    _clean_text(item.get("ten_bai_bao"))
-                    or _clean_text(item.get("ten"))
-                    or _clean_text(item.get("title"))
-                    or str(item)
-                )
-                journal = _clean_text(item.get("tap_chi")) or _clean_text(item.get("noi_cong_bo"))
-                year = _clean_text(item.get("nam")) or str(_extract_year(item) or "")
-                authors = _clean_text(item.get("tac_gia"))
-                line = f"**{idx}.** {title}"
-                meta_parts = [
-                    p for p in [
-                        authors,
-                        f"*{journal}*" if journal else "",
-                        f"({year})" if year else "",
-                    ]
-                    if p
-                ]
-                if meta_parts:
-                    line += " — " + ", ".join(meta_parts)
-                st.markdown(
-                    linkify_profile_names(line, exclude_key=target_profile_key),
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.markdown(
-                    f"**{idx}.** {linkify_profile_names(str(item), exclude_key=target_profile_key)}",
-                    unsafe_allow_html=True,
-                )
+        st.markdown("#### 📄 Công bố khoa học")
+        _render_publication_table(filtered_pubs, exclude_key=target_profile_key)
 
     projects = data.get("de_tai", [])
     filtered_projects = []

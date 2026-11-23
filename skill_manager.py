@@ -208,68 +208,70 @@ CHỈ trả về JSON, không giải thích thêm, không bao bọc trong ```jso
 # ============================================================
 STATISTICS_SKILL_CODE = '''
 def execute(args, ctx):
-    """Thống kê bài báo khoa học theo chuẩn Scopus/ISI (Skill Admin)."""
+    """Thong ke bai bao khoa hoc tu chi muc tap the publications_index (Skill Admin)."""
+    from storage import load_json_from_db
+    import pandas as pd
+    import io
+
     from_year = args.get("from_year")
     to_year = args.get("to_year")
     unit = str(args.get("unit", "")).strip().lower()
     person = str(args.get("person", "")).strip().lower()
     export_excel = bool(args.get("export_excel", False))
 
-    load_profile = ctx["load_profile"]
-    get_name = ctx["get_name"]
-    allowed_profiles = ctx.get("allowed_profiles", [])
+    index = load_json_from_db("publications_index") or {}
 
     rows = []
-    for key in allowed_profiles:
-        prof = load_profile(key) or {}
-        name = get_name(key)
-
-        if person and person not in str(name).lower():
-            continue
-        don_vi = str(prof.get("don_vi_cong_tac", "") or prof.get("don_vi", "")).lower()
-        if unit and unit not in don_vi:
+    for pub_key, pub in index.items():
+        if not isinstance(pub, dict):
             continue
 
-        pubs = prof.get("bai_bao_chuan_scopus", [])
-        if not isinstance(pubs, list):
-            pubs = prof.get("cong_bo", [])
-        if not isinstance(pubs, list):
-            pubs = prof.get("bai_bao", [])
-        if not isinstance(pubs, list):
-            pubs = []
+        year_str = str(pub.get("year", "")).strip()
+        try:
+            y = int(year_str) if year_str else 0
+        except Exception:
+            y = 0
+        if from_year and y < int(from_year):
+            continue
+        if to_year and y > int(to_year):
+            continue
 
-        for p in pubs:
-            if not isinstance(p, dict):
-                continue
-            try:
-                y = int(p.get("year") or 0)
-            except Exception:
-                y = 0
-            if from_year and y < int(from_year):
-                continue
-            if to_year and y > int(to_year):
+        units = pub.get("units", [])
+        if not isinstance(units, list):
+            units = []
+        units_lower = [str(u).lower() for u in units]
+        if unit and not any(unit in u for u in units_lower):
+            continue
+
+        internal_authors = pub.get("internal_authors", [])
+        if not isinstance(internal_authors, list):
+            internal_authors = []
+        if person:
+            authors_str = str(pub.get("authors", "")).lower()
+            found_person = person in authors_str or any(person in str(a).lower() for a in internal_authors)
+            if not found_person:
                 continue
 
-            rows.append({
-                "Ma HS": key,
-                "Ho ten": name,
-                "Ten bai bao": p.get("title", ""),
-                "Tac gia": p.get("authors", ""),
-                "Vai tro": p.get("author_role", ""),
-                "Tap chi": p.get("source_title", ""),
-                "Nam": y,
-                "Tap": p.get("volume", ""),
-                "So": p.get("issue", ""),
-                "Trang": p.get("page_range", ""),
-                "DOI": p.get("doi", ""),
-                "ISSN": p.get("issn", ""),
-                "ISBN": p.get("isbn", ""),
-                "Loai chi so": p.get("index_type", ""),
-                "Quy": p.get("quartile", ""),
-                "Loai bai bao": p.get("document_type", ""),
-            })
+        rows.append({
+            "Ma bai bao": pub_key,
+            "Ten bai bao": pub.get("title", ""),
+            "Tac gia": pub.get("authors", ""),
+            "Tap chi": pub.get("source_title", ""),
+            "Nam": y,
+            "DOI": pub.get("doi", ""),
+            "ISSN": pub.get("issn", ""),
+            "Loai chi so": pub.get("index_type", ""),
+            "Quy": pub.get("quartile", ""),
+            "Loai bai bao": pub.get("document_type", ""),
+            "Don vi": "; ".join(units),
+            "So tac gia noi bo": len(internal_authors),
+            "Danh sach tac gia noi bo": "; ".join(internal_authors),
+        })
 
-    total = len(rows)
+    rows.sort(key=lambda r: r["Nam"], reverse=True)
+
+    total_unique = len(rows)
+    total_contributions = sum(r["So tac gia noi bo"] for r in rows)
     isi = sum(1 for r in rows if "ISI" in str(r["Loai chi so"]))
     scopus = sum(1 for r in rows if "Scopus" in str(r["Loai chi so"]))
     trong_nuoc = sum(1 for r in rows if "Trong" in str(r["Loai chi so"]))
@@ -279,7 +281,8 @@ def execute(args, ctx):
     q4 = sum(1 for r in rows if str(r["Quy"]) == "Q4")
 
     summary = {
-        "Tong so": total,
+        "Tong so bai duy nhat": total_unique,
+        "Tong luot dong hop": total_contributions,
         "ISI/SCIE": isi,
         "Scopus": scopus,
         "Trong nuoc": trong_nuoc,
@@ -301,8 +304,6 @@ def execute(args, ctx):
     }
 
     if export_excel and rows:
-        import pandas as pd
-        import io
         df = pd.DataFrame(rows)
         bio = io.BytesIO()
         with pd.ExcelWriter(bio, engine="openpyxl") as w:
@@ -332,8 +333,176 @@ def ensure_statistics_skill() -> bool:
     )
 
 
+
 # ============================================================
-# SKILL TREE CONFIG (cây thư mục skill riêng cho mỗi user)
+# Skill mac dinh: Quan ly lich lam viec
+# ============================================================
+QUAN_LY_LICH_LAM_VIEC_CODE = '''
+def execute(args, ctx):
+    """Quan ly lich lam viec: xem, them, sua, xoa ca lam viec cua mot ho so."""
+    from storage import save_user_profile, load_user_profile
+    from datetime import datetime
+
+    action = str(args.get("action", "xem")).strip().lower()
+    profile_key = str(args.get("profile_key", "")).strip()
+    allowed_profiles = ctx.get("allowed_profiles", [])
+    load_profile = ctx.get("load_profile")
+
+    if not profile_key:
+        return {"error": "Vui long cung cap profile_key (ma ho so nhan vien)."}
+    if profile_key not in allowed_profiles:
+        return {"error": f"Ban khong co quyen truy cap ho so '{profile_key}'."}
+
+    def _now_id():
+        return datetime.now().strftime("%Y%m%d%H%M%S%f")
+
+    def _get_shifts(prof):
+        shifts = prof.get("lich_lam_viec", [])
+        if not isinstance(shifts, list):
+            shifts = []
+        return shifts
+
+    def _save(prof, shifts):
+        prof["lich_lam_viec"] = shifts
+        save_user_profile(profile_key, prof)
+        return prof
+
+    if action == "xem":
+        prof = load_profile(profile_key) or {}
+        shifts = _get_shifts(prof)
+        thang = args.get("thang")
+        nam = args.get("nam")
+        if thang or nam:
+            loc = []
+            for s in shifts:
+                ngay = str(s.get("ngay", ""))
+                ok_nam = (not nam) or ngay.startswith(str(nam))
+                ok_thang = (not thang) or ngay[5:7] == f"{int(thang):02d}"
+                if ok_nam and ok_thang:
+                    loc.append(s)
+            shifts = loc
+        shifts.sort(key=lambda s: str(s.get("ngay", "")))
+        return {
+            "profile_key": profile_key,
+            "tong_so_ca": len(shifts),
+            "rows": shifts,
+            "filters": {"thang": thang, "nam": nam},
+        }
+
+    if action == "them":
+        ngay = str(args.get("ngay", "")).strip()
+        ca = str(args.get("ca", "")).strip()
+        gio_vao = str(args.get("gio_vao", "")).strip()
+        gio_ra = str(args.get("gio_ra", "")).strip()
+        ghi_chu = str(args.get("ghi_chu", "")).strip()
+        if not ngay or not ca:
+            return {"error": "Vui long nhap ngay va ca lam viec."}
+        try:
+            datetime.strptime(ngay, "%Y-%m-%d")
+        except Exception:
+            return {"error": "Ngay phai co dinh dang YYYY-MM-DD (vi du: 2026-11-23)."}
+        prof = load_profile(profile_key) or {}
+        shifts = _get_shifts(prof)
+        ca_moi = {
+            "id": _now_id(),
+            "ngay": ngay,
+            "ca": ca,
+            "gio_vao": gio_vao,
+            "gio_ra": gio_ra,
+            "ghi_chu": ghi_chu,
+        }
+        shifts.append(ca_moi)
+        _save(prof, shifts)
+        return {
+            "message": f"Da them ca lam viec vao ngay {ngay} ({ca}).",
+            "ca": ca_moi,
+            "tong_so_ca": len(shifts),
+        }
+
+    if action == "sua":
+        ca_id = str(args.get("ca_id", "")).strip()
+        if not ca_id:
+            return {"error": "Vui long cung ca ca_id (ma ca) de sua."}
+        prof = load_profile(profile_key) or {}
+        shifts = _get_shifts(prof)
+        tim_thay = False
+        for s in shifts:
+            if str(s.get("id", "")) == ca_id:
+                if args.get("ngay"):
+                    s["ngay"] = str(args["ngay"]).strip()
+                if args.get("ca"):
+                    s["ca"] = str(args["ca"]).strip()
+                if "gio_vao" in args:
+                    s["gio_vao"] = str(args.get("gio_vao") or "").strip()
+                if "gio_ra" in args:
+                    s["gio_ra"] = str(args.get("gio_ra") or "").strip()
+                if "ghi_chu" in args:
+                    s["ghi_chu"] = str(args.get("ghi_chu") or "").strip()
+                tim_thay = True
+                break
+        if not tim_thay:
+            return {"error": f"Khong tim thay ca lam viec co ma '{ca_id}'."}
+        _save(prof, shifts)
+        return {"message": f"Da cap nhat ca lam viec ma {ca_id}.", "ca_id": ca_id}
+
+    if action == "xoa":
+        ca_id = str(args.get("ca_id", "")).strip()
+        if not ca_id:
+            return {"error": "Vui long cung ca ca_id (ma ca) de xoa."}
+        prof = load_profile(profile_key) or {}
+        shifts = _get_shifts(prof)
+        moi = [s for s in shifts if str(s.get("id", "")) != ca_id]
+        if len(moi) == len(shifts):
+            return {"error": f"Khong tim thay ca lam viec co ma '{ca_id}'."}
+        _save(prof, moi)
+        return {"message": f"Da xoa ca lam viec ma {ca_id}.", "tong_so_ca": len(moi)}
+
+    if action == "thong_ke":
+        prof = load_profile(profile_key) or {}
+        shifts = _get_shifts(prof)
+        nam = args.get("nam")
+        thang = args.get("thang")
+        theo_ngay = {}
+        tong = 0
+        for s in shifts:
+            ngay = str(s.get("ngay", ""))
+            if nam and not ngay.startswith(str(nam)):
+                continue
+            if thang and ngay[5:7] != f"{int(thang):02d}":
+                continue
+            tong += 1
+            theo_ngay[ngay] = theo_ngay.get(ngay, 0) + 1
+        rows = [{"ngay": k, "so_ca": v} for k, v in sorted(theo_ngay.items())]
+        return {
+            "profile_key": profile_key,
+            "tong_so_ca": tong,
+            "so_ngay_lam": len(rows),
+            "rows": rows,
+            "filters": {"nam": nam, "thang": thang},
+        }
+
+    return {"error": f"Han dong '{action}' khong duoc ho tro. Dung: xem, them, sua, xoa, thong_ke."}
+'''
+
+def ensure_quan_ly_lich_lam_viec_skill() -> bool:
+    """Dang ky Skill quan ly lich lam viec vao kho neu chua ton tai."""
+    if skill_exists("quan_ly_lich_lam_viec"):
+        return True
+    return create_skill(
+        skill_name="quan_ly_lich_lam_viec",
+        creator="system",
+        description=(
+            "Quan ly lich lam viec: xem, them, sua, xoa ca lam viec cua "
+            "mot ho so nhan vien. Luu du lieu vao profile cua nhan vien do. "
+            "Chi duoc xem/sua ho so trong danh sach phep duoc cap."
+        ),
+        code=QUAN_LY_LICH_LAM_VIEC_CODE,
+        allowed_users=["admin"],
+    )
+
+
+# ============================================================
+# SKILL TREE CONFIG (cay thu muc skill rieng cho moi user)
 # ============================================================
 SKILL_TREE_PREFIX = "skill_tree_"
 
