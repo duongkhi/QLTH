@@ -13,7 +13,13 @@ from ui.local_session import save_local_session, clear_local_session
 def render_auth_screen():
     st.title("🔒 Đăng Nhập Hệ Thống")
     st.write("Vui lòng xác thực tài khoản để làm việc.")
-    auth_config = load_auth_config()
+
+    # Đọc auth_config an toàn: Supabase có thể lỗi mạng lần đầu chưa có cache
+    try:
+        auth_config = load_auth_config()
+    except Exception:
+        auth_config = {"users": {}}
+        st.error("⚠️ Không kết nối được cơ sở dữ liệu. Vui lòng kiểm tra mạng và thử lại.")
 
     c1, c2 = st.columns(2)
     with c1:

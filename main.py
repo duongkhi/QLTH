@@ -161,7 +161,13 @@ if qp_profile:
 # =========================================================
 is_logged_in = st.session_state.get("logged_in", False)
 username = st.session_state.get("username", "") if is_logged_in else ""
-user_record = load_auth_config()["users"].get(username, {}) if is_logged_in else {}
+
+# Đọc auth_config an toàn: Supabase có thể lỗi mạng lần đầu chưa có cache
+try:
+    _auth_cfg = load_auth_config()
+except Exception:
+    _auth_cfg = {"users": {}}
+user_record = _auth_cfg.get("users", {}).get(username, {}) if is_logged_in else {}
 role_key = user_record.get("role", "guest")
 
 ctx = UserContext(
@@ -189,7 +195,10 @@ elif not is_logged_in and prev_user:
 # Khởi tạo hồ sơ mặc định nếu chưa có
 if not st.session_state.get("viewing_profile"):
     if "all_profiles_cache" not in st.session_state:
-        st.session_state["all_profiles_cache"] = get_all_existing_profiles()
+        try:
+            st.session_state["all_profiles_cache"] = get_all_existing_profiles()
+        except Exception:
+            st.session_state["all_profiles_cache"] = []
     all_p = st.session_state["all_profiles_cache"]
     st.session_state.viewing_profile = ctx.own_profile or (all_p[0] if all_p else "")
 

@@ -40,7 +40,9 @@ __all__ = [
 def load_user_profile(name):
     if not name:
         return {}
-    return load_json_from_db(name) or {}
+    data = load_json_from_db(name)
+    # Đảm bảo luôn trả về dict; dữ liệu Supabase có thể hỏng (list, str, None...)
+    return data if isinstance(data, dict) else {}
 
 
 def save_user_profile(name, data):

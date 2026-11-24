@@ -10,8 +10,11 @@ def sync_name_mapping(profiles):
     for k in profiles:
         if not k or k in m:
             continue
-        d = load_user_profile(k)
-        if not d or not isinstance(d, dict):
+        try:
+            d = load_user_profile(k)
+        except Exception:
+            continue
+        if not isinstance(d, dict) or not d:
             continue
         for field in NAME_FIELDS:
             if d.get(field):
