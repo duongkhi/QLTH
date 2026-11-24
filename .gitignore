@@ -26,3 +26,12 @@ dist/
 
 .streamlit/
 scimagojr 2025.csv
+finance_example.xlsx
+*.json
+*/scratch/.json
+*/supabase__dump.json
+**/*_dump.json
+.streamlit/local_session.json
+pycache/
+*.xlsx
+*.xls

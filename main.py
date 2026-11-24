@@ -24,6 +24,7 @@ from ui.sidebar import render_sidebar
 from ui.profile_ui import render_public_profile, render_settings_page
 from ui.workspace_ui import render_workspace_module
 from ui.user_admin_ui import render_user_admin_page
+from ui.salary_management import render_salary_management_page
 from ui.skill_ui import render_skill_page
 from skill_manager import ensure_statistics_skill, ensure_quan_ly_lich_lam_viec_skill, run_skill
 from ui.journal_admin_ui import render_journal_admin_page
@@ -347,5 +348,10 @@ with col_main:
             render_journal_admin_page(ctx)
         else:
             st.error("🚫 Chỉ quản trị viên mới có quyền truy cập trang này.")
+    elif mode == "salary":
+        if ctx.role in ("admin", "manager"):
+            render_salary_management_page(ctx)
+        else:
+            st.error("🚫 Chỉ Admin/Quản lý mới có quyền truy cập trang này.")
 
 

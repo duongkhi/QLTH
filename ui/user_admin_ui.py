@@ -28,6 +28,33 @@ def render_user_admin_page(ctx: UserContext):
     st.title("🛡️ Quản Trị Người Dùng & Phân Quyền")
     st.caption("Admin mặc định có toàn bộ công cụ; Manager và User được tùy chỉnh thêm/bớt từng công cụ")
 
+    # CSS giữ màu nổi bật cho nút công cụ đã cấp (primary) và nút chưa cấp trong popover
+    st.markdown(
+        """
+        <style>
+        /* Nút công cụ đã cấp (primary) — giữ màu xanh, không bị mờ khi disable */
+        div[data-testid="stButton"] button[kind="primary"][disabled] {
+            background-color: #2563eb !important;
+            border-color: #2563eb !important;
+            color: #ffffff !important;
+            opacity: 1 !important;
+        }
+        /* Nút công cụ chưa cấp (secondary) trong popover */
+        div[data-testid="stButton"] button[kind="secondary"] {
+            background-color: #f3f4f6 !important;
+            border-color: #d1d5db !important;
+            color: #374151 !important;
+            opacity: 1 !important;
+        }
+        div[data-testid="stButton"] button[kind="secondary"]:hover {
+            background-color: #e5e7eb !important;
+            border-color: #9ca3af !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     # Giới hạn chiều rộng selectbox gán hồ sơ, không bị extend full cột
     st.markdown(
         """
@@ -221,21 +248,88 @@ def render_user_admin_page(ctx: UserContext):
                 t for t in urec.get("allowed_tools", []) if t in SYSTEM_TOOLS
             ]
 
-            new_tools = c3.multiselect(
-                "Tool nghiệp vụ được cấp:",
-                options=list(SYSTEM_TOOLS.keys()),
-                default=cur_tools,
-                format_func=lambda k: SYSTEM_TOOLS[k],
-                key=f"adm_tools_{uname}_{new_role}",
-                disabled=is_admin_role,
-                help="Admin mặc định kích hoạt toàn bộ công cụ. Manager và User có thể thêm/bớt tùy ý.",
-            )
+            # --- Hiển thị quyền quản trị (màu xanh) + nút Sửa quyền mở popover ---
+            with c3:
+                st.markdown("**Quyền quản trị:**")
+                granted = [t for t in cur_tools if t in SYSTEM_TOOLS]
+                if granted:
+                    n_col = 3
+                    rows = (len(granted) + n_col - 1) // n_col
+                    for r in range(rows):
+                        cols = st.columns(n_col)
+                        for c in range(n_col):
+                            idx = r * n_col + c
+                            if idx >= len(granted):
+                                break
+                            tool_key = granted[idx]
+                            tool_label = SYSTEM_TOOLS[tool_key]
+                            with cols[c]:
+                                st.button(
+                                    tool_label,
+                                    key=f"view_tool_{uname}_{tool_key}",
+                                    type="primary",
+                                    disabled=True,
+                                    width='stretch',
+                                    help=tool_label,
+                                )
+                else:
+                    st.caption("(Chưa có tool nào)")
+                st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
+                with st.popover("✏️ Sửa quyền", width='stretch'):
+                    st.markdown(f"**Chỉnh sửa quyền quản trị cho {display_name} (@{uname})**")
+                    st.caption("Màu xanh = đang cấp quyền · Màu trắng = chưa cấp quyền · Nhấn vào công cụ để Bật/Tắt")
+
+                    temp_key = f"temp_tools_{uname}"
+                    if temp_key not in st.session_state:
+                        st.session_state[temp_key] = list(cur_tools)
+
+                    tool_items = list(SYSTEM_TOOLS.items())
+                    n_col = 3
+                    rows = (len(tool_items) + n_col - 1) // n_col
+                    for r in range(rows):
+                        cols = st.columns(n_col)
+                        for c in range(n_col):
+                            idx = r * n_col + c
+                            if idx >= len(tool_items):
+                                break
+                            tool_key, tool_label = tool_items[idx]
+                            with cols[c]:
+                                is_selected = tool_key in st.session_state[temp_key]
+                                btn_type = "primary" if is_selected else "secondary"
+                                if st.button(
+                                    tool_label,
+                                    key=f"tool_toggle_{uname}_{tool_key}",
+                                    type=btn_type,
+                                    width='stretch',
+                                    help=f"Bật/tắt {tool_label}",
+                                ):
+                                    if is_selected:
+                                        st.session_state[temp_key].remove(tool_key)
+                                    else:
+                                        st.session_state[temp_key].append(tool_key)
+                                    st.rerun()
+
+                    st.markdown("---")
+                    s1, s2 = st.columns(2)
+                    with s1:
+                        if st.button("💾 Lưu công cụ", key=f"save_tools_{uname}", type="primary", width='stretch'):
+                            tools_to_save = list(SYSTEM_TOOLS.keys()) if is_admin_role else st.session_state[temp_key]
+                            prof_to_save = None if new_prof == "(Không gán)" else new_prof
+                            ok, msg = admin_update_user(uname, new_role, prof_to_save, tools_to_save)
+                            if ok:
+                                st.success(msg)
+                                st.rerun()
+                            else:
+                                st.error(msg)
+                    with s2:
+                        if st.button("❌ Hủy", key=f"cancel_tools_{uname}", width='stretch'):
+                            pass
 
             b1, b2, b3 = st.columns([2, 2, 1])
             with b1:
                 if st.button("💾 Lưu phân quyền", key=f"adm_save_{uname}", type="primary", width='stretch'):
                     prof_to_save = None if new_prof == "(Không gán)" else new_prof
-                    tools_to_save = list(SYSTEM_TOOLS.keys()) if is_admin_role else new_tools
+                    tools_to_save = list(SYSTEM_TOOLS.keys()) if is_admin_role else cur_tools
                     ok, msg = admin_update_user(uname, new_role, prof_to_save, tools_to_save)
                     if ok:
                         st.success(msg)
@@ -259,6 +353,8 @@ def render_user_admin_page(ctx: UserContext):
                             st.rerun()
                         else:
                             st.error(msg)
+
+
 
             # --- Expander chỉnh sửa thông tin hồ sơ trực tiếp (chỉ Admin) ---
             with st.expander(f"✏️ Chỉnh sửa thông tin hồ sơ của {uname}", expanded=False):

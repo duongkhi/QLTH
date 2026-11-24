@@ -11,7 +11,7 @@ def sync_name_mapping(profiles):
         if not k or k in m:
             continue
         d = load_user_profile(k)
-        if not d:
+        if not d or not isinstance(d, dict):
             continue
         for field in NAME_FIELDS:
             if d.get(field):

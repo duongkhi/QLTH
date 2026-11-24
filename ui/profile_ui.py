@@ -574,8 +574,10 @@ def _render_tab_personal_info(ctx: UserContext):
         )
         if av_file and st.button("🖼️ Lưu ảnh đại diện", type="primary"):
             data["_avatar_b64"] = base64.b64encode(av_file.getvalue()).decode("utf-8")
-            save_user_profile(ctx.own_profile, data)
-            st.success("✅ Đã cập nhật ảnh đại diện!")
+            if save_user_profile(ctx.own_profile, data):
+                st.success("✅ Đã cập nhật ảnh đại diện!")
+            else:
+                st.error("❌ Không lưu được ảnh đại diện. Vui lòng thử lại.")
             st.rerun()
 
     st.markdown("---")
@@ -647,9 +649,11 @@ def _render_tab_personal_info(ctx: UserContext):
                     new_public_list.append(list_k)
 
             data["_public_fields"] = list(set(new_public_list))
-            save_user_profile(ctx.own_profile, data)
-            write_system_log(ctx.username, f"Cập nhật hồ sơ {ctx.own_profile}", "OK")
-            st.success("✅ Đã lưu thông tin và quyền hiển thị Public!")
+            if save_user_profile(ctx.own_profile, data):
+                write_system_log(ctx.username, f"Cập nhật hồ sơ {ctx.own_profile}", "OK")
+                st.success("✅ Đã lưu thông tin và quyền hiển thị Public!")
+            else:
+                st.error("❌ Không lưu được hồ sơ. Vui lòng thử lại.")
             time.sleep(0.5)
             st.rerun()
 
@@ -895,8 +899,10 @@ def _render_tab_projects(ctx: UserContext):
                     pub = set(data.get("_public_fields", list(DEFAULT_PUBLIC_FIELDS)))
                     pub.add("de_tai")
                     data["_public_fields"] = list(pub)
-                    save_user_profile(ctx.own_profile, data)
-                    st.success("✅ Đã thêm đề tài!")
+                    if save_user_profile(ctx.own_profile, data):
+                        st.success("✅ Đã thêm đề tài!")
+                    else:
+                        st.error("❌ Không lưu được đề tài. Vui lòng thử lại.")
                     st.rerun()
 
     if projects:
@@ -915,7 +921,9 @@ def _render_tab_projects(ctx: UserContext):
                     if st.button("🗑️ Xóa", key=f"del_dt_{idx}", width='stretch'):
                         projects.pop(idx)
                         data["de_tai"] = projects
-                        save_user_profile(ctx.own_profile, data)
-                        st.rerun()
+                        if save_user_profile(ctx.own_profile, data):
+                            st.rerun()
+                        else:
+                            st.error("❌ Không lưu được thay đổi. Vui lòng thử lại.")
     else:
         st.info("Chưa có đề tài nào được lưu.")

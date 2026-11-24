@@ -112,7 +112,8 @@ def render_sidebar(ctx: UserContext):
         st.markdown("### 🛠️ Công cụ quản trị")
 
         admin_buttons = [
-            ("💰 Công cụ tài chính", "workspace"),
+            ("💰 Quản lý tài chính", "workspace"),
+            ("💰 Quản trị lương", "salary"),
             ("📦 Sản phẩm khoa học", "journal_admin"),
             ("🗄️ Quản lý dữ liệu", "data_management"),
             ("🛠️ Quản trị Skill", "skill_admin"),

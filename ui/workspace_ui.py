@@ -11,28 +11,15 @@ from docx_utils import extract_document_title, strip_personal_content
 
 
 def render_workspace_module(ctx: UserContext, allowed_tools: list[str]):
-    st.title("💼 Không Gian Nghiệp Vụ")
-    st.caption("Các công cụ chuyên môn được cấp quyền cho tài khoản của bạn")
-
     effective_tools = list(SYSTEM_TOOLS.keys()) if ctx.role == "admin" else [
         t for t in allowed_tools if t in SYSTEM_TOOLS
     ]
 
-    if not effective_tools:
-        st.warning("⚠️ Bạn chưa được cấp quyền sử dụng công cụ nào.")
+    if "workspace" not in effective_tools:
+        st.warning("⚠️ Bạn chưa được cấp quyền sử dụng Quản lý tài chính.")
         return
 
-    tab_labels = [SYSTEM_TOOLS[t] for t in effective_tools]
-    tabs = st.tabs(tab_labels)
-
-    for tool_key, tab in zip(effective_tools, tabs):
-        with tab:
-            if tool_key == "finance":
-                render_finance_module(ctx)
-            elif tool_key == "knowledge":
-                render_knowledge_ui(ctx)
-            elif tool_key == "form_batch":
-                _render_template_library_manager(ctx)
+    render_finance_module(ctx)
 
 
 def _render_template_library_manager(ctx: UserContext):

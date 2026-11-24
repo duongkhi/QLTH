@@ -24,6 +24,7 @@ FILE_NAME_REQUIRED = "danh sách đề tài đang thực hiện iop.xlsx"
 EDITABLE_FIELDS = {
     "name", "pi", "group", "task_type", "unit", "duration",
     "total_budget", "allocated_budget", "actual_budget",
+    "budget_file_name", "budget_file_b64",
 }
 
 
@@ -227,14 +228,20 @@ def validate_and_import_excel(file_bytes, filename):
 # =============================================================
 # CRUD ĐỀ TÀI
 # =============================================================
-def add_single_project(pid, name, pi, group, budget):
+def add_single_project(pid, name, pi, group, budget,
+                       unit="Viện Vật lý", duration="", task_type="",
+                       allocated_budget=0, actual_budget=0,
+                       budget_file_name="", budget_file_b64=""):
     projects, disbs, _ = load_finance_data()
     if pid in projects:
         return False, "Mã đề tài đã tồn tại."
     projects[pid] = {
         "id": pid, "name": name, "pi": pi, "group": group,
-        "actual_budget": budget, "total_budget": budget, "allocated_budget": 0,
-        "duration": "", "task_type": "", "unit": "Viện Vật lý",
+        "unit": unit, "duration": duration, "task_type": task_type,
+        "total_budget": budget, "allocated_budget": allocated_budget,
+        "actual_budget": actual_budget,
+        "budget_file_name": budget_file_name,
+        "budget_file_b64": budget_file_b64,
     }
     disbs[pid] = {
         "settled_before_2025": 0, "saving_2026": 0,

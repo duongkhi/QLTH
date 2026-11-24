@@ -17,8 +17,14 @@ FORM_TEMPLATE_INDEX = "_form_template_index"
 META_KEYS = {"auth_config", "name_mapping", FORM_TEMPLATE_INDEX, "ai_settings", "hermes_skills_registry", "journal_quality_catalog", "publications_index"}
 
 # Danh sách công cụ nghiệp vụ có thể cấp quyền cho User / Manager
+# PHẢI đồng bộ với các nút trong ui/sidebar.py (admin_buttons) và routing trong main.py
 SYSTEM_TOOLS = {
-    "finance": "💰 Quản lý Tài chính",
+    "workspace": "💰 Quản lý tài chính",
+    "salary": "💰 Quản trị lương",
+    "journal_admin": "📦 Sản phẩm khoa học",
+    "data_management": "🗄️ Quản lý dữ liệu",
+    "skill_admin": "🛠️ Quản trị Skill",
+    "user_admin": "🛡️ Quản trị người dùng",
     "knowledge": "📚 Tra cứu Tri thức / Văn bản (Acknowledge)",
     "form_batch": "📝 Quản lý Thư viện Biểu mẫu",
 }

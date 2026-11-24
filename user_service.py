@@ -39,7 +39,7 @@ def load_auth_config():
                 "password_hash": hash_password(default_pw),
                 "own_profile": None,
                 "role": "admin",
-                "allowed_tools": ["finance", "knowledge", "form_batch"],
+                "allowed_tools": ["workspace", "knowledge", "form_batch"],
             },
         }}
         save_json_to_db("auth_config", cfg)

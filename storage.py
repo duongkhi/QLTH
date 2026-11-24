@@ -45,8 +45,8 @@ def load_user_profile(name):
 
 def save_user_profile(name, data):
     if not name:
-        return
-    save_json_to_db(name, data)
+        return False
+    return save_json_to_db(name, data)
 
 
 def load_name_mapping():
