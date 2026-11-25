@@ -14,7 +14,7 @@ from name_mapping import get_display_name
 from profile_service import (
     resolve_profile, suggest_profile_key, merge_and_save, find_identity_matches,
 )
-from user_service import get_own_profile, admin_create_user
+from user_service import get_own_profile, admin_create_user, tra_cuu_luong
 from supabase_adapter import (
     get_ai_settings, filter_profiles_in_db, load_json_from_db,
     save_json_to_db, load_many,
@@ -140,6 +140,7 @@ def _build_system_prompt(role, own_profile, viewing_profile, allowed_profiles_co
     tool_list = """
 Các công cụ có sẵn (bạn YÊU CẦU gọi bằng cách trả về JSON action):
 - get_profile_data: lấy dữ liệu hồ sơ một người. Tham số: {"profile_name": "..."}
+- get_salary: lấy thông tin lương của một người. Tham số: {"profile_name": "..."}
 - list_accessible_profiles: liệt kê hồ sơ user được phép. Tham số: {}
 - search_profiles: tìm hồ sơ theo điều kiện. Tham số: {"field": "...", "operator": "eq|like|...", "value": "..."}
 - query_finance_data: tra cứu đề tài/kinh phí. Tham số: {"field": "...", "operator": "...", "value": "...", "action": "list|sum|count"}
@@ -162,8 +163,9 @@ Các công cụ có sẵn (bạn YÊU CẦU gọi bằng cách trả về JSON a
         f"1. Chào hỏi/cảm ơn → trả lời trực tiếp, không gọi công cụ.\n"
         f"2. Hỏi về một người (\"X là ai\", \"thông tin về X\", \"hồ sơ X\") → gọi get_profile_data với profile_name là tên người đó. Nếu không tìm thấy hồ sơ, có thể gọi query_finance_data để tìm đề tài/tài chính của người đó, rồi trả lời ghép.\n"
         f"3. Hỏi về đề tài / chủ nhiệm đề tài / kinh phí → chỉ gọi query_finance_data, không gọi get_profile_data.\n"
-        f"3. Hỏi danh sách đề tài → gọi query_finance_data (action='list').\n"
-        f"4. Hỏi quy định → gọi search_knowledge.\n"
+        f"4. Hỏi về lương/thu nhập của một người → gọi get_salary với profile_name là tên người đó. AI sẽ tự tìm theo tên hiển thị hoặc username.\n"
+        f"5. Hỏi danh sách đề tài → gọi query_finance_data (action='list').\n"
+        f"6. Hỏi quy định → gọi search_knowledge.\n"
         f"5. Trả về CHỈ duy nhất một đối tượng JSON:\n"
         f'   {{"action": "ten_cong_cu", "args": {{...}}}}\n'
         f"   hoặc\n"
@@ -357,6 +359,21 @@ def _handle_retrieve(action: str, args: dict, ctx_info: dict,
         status = "knowledge"
         result = search_knowledge_base(str(args.get("query", "")), module="finance")
 
+    elif action == "get_salary":
+        # Tra cuu luong: user chi xem chinh minh, admin/manager xem tat ca
+        target_name = str(args.get("profile_name", "") or args.get("name", "") or "").strip()
+        if not target_name and fallback_query:
+            target_name = fallback_query.strip()
+        if not target_name:
+            result = {"error": "Chưa tên người cần tra cứu lương."}
+            status = "error"
+        else:
+            result = tra_cuu_luong(target_name, username, role, user_record)
+            if "error" in result:
+                status = "error"
+            else:
+                status = "salary"
+
     elif action in TOOL_REGISTRY:
         if not can_finance:
             result = {"error": "Bạn không có quyền sử dụng công cụ tính lương/tài chính."}
@@ -451,6 +468,7 @@ def _build_file_extract_prompt(raw_text: str, filename: str) -> str:
     parts.append("(key viet thuong, gach duong, tieng Viet khong dau). Truong nao khong co thi de null hoac bo qua.\n\n")
     parts.append("THONG TIN CA NHAN (bat buoc neu co):\n")
     parts.append("- 'ho_va_ten', 'hoc_ham', 'hoc_vi', 'chuc_vu', 'don_vi_cong_tac', 'ngay_sinh' (DD/MM/YYYY)\n")
+    parts.append("- 'don_vi_cong_tac_con': don vi con (trung tai/phong ban) neu co\n")
     parts.append("- 'ho_va_ten_anh': ten tieng anh neu co trong file (vi du: 'Vu Duong', 'Nguyen Van A')\n")
     parts.append("- 'huong_nghien_cuu': doan mo tro huong nghien cuu chinh\n\n")
     parts.append("DANH SACH BAI BAO / CONG TRINH KHOA HOC ('cong_bo'):\n")

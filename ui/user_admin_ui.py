@@ -8,6 +8,7 @@ from user_service import (
 from storage import get_all_existing_profiles, load_json_from_db, save_json_to_db, load_user_profile, save_user_profile
 from security import hash_password
 from profile_service import sync_publications_index
+from user_service import tra_cuu_luong, lay_ds_key_co_luong
 
 
 def render_user_admin_page(ctx: UserContext):
@@ -70,7 +71,7 @@ def render_user_admin_page(ctx: UserContext):
     auth_data = load_auth_config()
     users = auth_data.get("users", {})
     # Chỉ lấy danh sách username đã đăng ký, không lấy các key catalog/khác trên Supabase
-    all_profiles = sorted(users.keys())
+    all_profiles = sorted(k for k in users.keys() if k != "salary_profiles")
 
     # Tên hiển thị tùy chỉnh cho các catalog (nếu có)
     catalog_display_names = load_json_from_db("catalog_display_names") or {}
@@ -100,6 +101,26 @@ def render_user_admin_page(ctx: UserContext):
         else:
             st.caption("⚪ Chưa chọn hồ sơ (sẽ tự động theo username)")
 
+        # Selectbox liên kết bảng lương (chọn theo fullname trong salary_profiles)
+        salary_keys = lay_ds_key_co_luong()
+        salary_data = load_json_from_db("salary_profiles") or {}
+        salary_opts = ["(Không liên kết)"]
+        salary_label_map = {}
+        for sk in salary_keys:
+            sp = salary_data.get(sk, {})
+            ten = sp.get("ho_va_ten", sk)
+            label = f"{ten} (@{sk})"
+            salary_opts.append(label)
+            salary_label_map[label] = sk
+
+        selected_salary_label = st.selectbox(
+            "Liên kết bảng lương (chọn fullname trong salary_profiles):",
+            options=salary_opts,
+            index=0,
+            key="new_user_select_salary",
+        )
+        selected_salary_link = salary_label_map.get(selected_salary_label) if selected_salary_label != "(Không liên kết)" else None
+
         st.markdown("---")
 
         with st.form("form_admin_create_user"):
@@ -121,7 +142,7 @@ def render_user_admin_page(ctx: UserContext):
                 else:
                     prof_val = None if selected_prof_new == "(Không gán)" else selected_prof_new
                     tools_val = list(SYSTEM_TOOLS.keys()) if new_r == "admin" else new_t
-                    ok2, msg2 = admin_create_user(new_u, new_pw, new_r, prof_val, tools_val)
+                    ok2, msg2 = admin_create_user(new_u, new_pw, new_r, prof_val, tools_val, selected_salary_link)
                     if ok2:
                         st.success(msg2)
                         st.rerun()
@@ -362,6 +383,7 @@ def render_user_admin_page(ctx: UserContext):
                     ("ho_va_ten", "Họ và tên"),
                     ("chuc_vu", "Chức vụ"),
                     ("don_vi_cong_tac", "Đơn vị công tác"),
+                    ("don_vi_cong_tac_con", "Đơn vị con (trung tâm/phòng ban)"),
                     ("email", "Email"),
                     ("so_dien_thoai", "Số điện thoại"),
                     ("hoc_ham", "Học hàm"),
@@ -371,14 +393,32 @@ def render_user_admin_page(ctx: UserContext):
                 with st.form(f"form_edit_profile_{uname}"):
                     new_values = {}
                     cols = st.columns(2)
+                    dvc_options = [
+                        "Trung tâm Vật lý Hạt nhân",
+                        "Trung tâm Vật lý kỹ thuật",
+                        "Trung tâm Vật lý lý thuyết",
+                        "Trung tâm Vật lý tính toán",
+                        "Trung tâm Điện tử học lượng tử",
+                        "Phòng tự động hóa",
+                        "Trung tâm Vật lý ứng dụng và Thiết bị khoa học",
+                        "Phòng quản lý tổng hợp",
+                    ]
                     for idx, (field, label) in enumerate(edit_fields):
                         with cols[idx % 2]:
                             cur_val = prof_data.get(field, "") or ""
-                            new_values[field] = st.text_input(
-                                label,
-                                value=str(cur_val),
-                                key=f"edit_{uname}_{field}",
-                            )
+                            if field == "don_vi_cong_tac_con":
+                                new_values[field] = st.selectbox(
+                                    label,
+                                    options=[""] + dvc_options,
+                                    index=(dvc_options.index(cur_val) + 1) if cur_val in dvc_options else 0,
+                                    key=f"edit_{uname}_{field}",
+                                )
+                            else:
+                                new_values[field] = st.text_input(
+                                    label,
+                                    value=str(cur_val),
+                                    key=f"edit_{uname}_{field}",
+                                )
                     if st.form_submit_button("💾 Lưu thông tin hồ sơ", type="primary", width='stretch'):
                         for field, val in new_values.items():
                             prof_data[field] = val.strip() if val else ""
@@ -388,6 +428,14 @@ def render_user_admin_page(ctx: UserContext):
                         prof_data["_public_fields"] = list(pub)
                         ok = save_user_profile(profile_key, prof_data)
                         if ok:
+                            # Dong bo ten/email vao salary_profiles neu user duoc lien ket
+                            try:
+                                from user_service import sync_user_to_salary
+                                cfg = load_auth_config()
+                                urec = cfg.get("users", {}).get(uname, {})
+                                sync_user_to_salary(uname, urec)
+                            except Exception:
+                                pass
                             st.success(f"✅ Đã cập nhật hồ sơ của {uname}!")
                             st.rerun()
                         else:

@@ -1,6 +1,14 @@
 # tools_registry.py
 from google.genai import types
 import json
+import unicodedata
+
+def _norm(s: str) -> str:
+    if not s:
+        return ""
+    s = unicodedata.normalize("NFD", str(s))
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
+    return s.lower().replace(" ", "").replace("_", "").replace("-", "")
 
 def _calc_salary_impl(args, ctx):
     """Tính lương một nhân sự cho 1 tháng. Math 100% bằng Python."""
@@ -129,8 +137,9 @@ def _thong_ke_bai_bao_impl(args, ctx):
 
         if person and person not in str(name).lower():
             continue
-        don_vi = str(prof.get("don_vi_cong_tac", "") or prof.get("don_vi", "")).lower()
-        if unit and unit not in don_vi:
+        don_vi = _norm(prof.get("don_vi_cong_tac", "") or prof.get("don_vi", ""))
+        don_vi_con = _norm(prof.get("don_vi_cong_tac_con", ""))
+        if unit and _norm(unit) not in don_vi and _norm(unit) not in don_vi_con:
             continue
 
         pubs = prof.get("bai_bao_chuan_scopus", [])

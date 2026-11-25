@@ -39,7 +39,7 @@ st.set_page_config(
     layout="wide",
 )
 
-# CSS cố định: font size responsive theo từng màn hình, layout sidebar/chính
+# CSS responsive theo từng loại màn hình (PC, laptop, tablet, dien thoai)
 st.markdown(
     """
     <style>
@@ -83,10 +83,35 @@ st.markdown(
         color: #0d47a1;
         border-bottom: 1px solid #0d47a1;
     }
-    /* Responsive font size theo màn hình */
-    @media (max-width: 768px) {
+
+    /* =================== RESPONSIVE =================== */
+
+    /* Man hinh nho hon 480px: dien thoai */
+    @media (max-width: 480px) {
         html, body, [class*="css"] {
             font-size: 14px !important;
+        }
+        .stButton button {
+            font-size: 0.8rem !important;
+            padding: 5px 8px !important;
+        }
+        .stMarkdown p, .stMarkdown li {
+            font-size: 0.9rem !important;
+        }
+        .stTextInput input {
+            font-size: 0.9rem !important;
+            padding: 6px 8px !important;
+        }
+        .block-container {
+            padding-left: 0.5rem !important;
+            padding-right: 0.5rem !important;
+        }
+    }
+
+    /* Man hinh 481-768px: tablet / laptop nho */
+    @media (min-width: 481px) and (max-width: 768px) {
+        html, body, [class*="css"] {
+            font-size: 15px !important;
         }
         .stButton button {
             font-size: 0.85rem !important;
@@ -96,12 +121,36 @@ st.markdown(
             font-size: 0.95rem !important;
         }
     }
+
+    /* Man hinh 769-1199px: laptop */
+    @media (min-width: 769px) and (max-width: 1199px) {
+        html, body, [class*="css"] {
+            font-size: 16px !important;
+        }
+        .stButton button {
+            font-size: 0.9rem !important;
+        }
+    }
+
+    /* Man hinh >= 1200px: PC */
     @media (min-width: 1200px) {
         html, body, [class*="css"] {
             font-size: 18px !important;
         }
         .stButton button {
             font-size: 1rem !important;
+        }
+    }
+
+    /* An cot sidebar tren man hinh < 768px (duoc xu ly o main.py bang st.columns) */
+    @media (max-width: 768px) {
+        [data-testid="stSidebar"] {
+            display: none !important;
+        }
+        .block-container {
+            max-width: 100% !important;
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
         }
     }
     </style>
@@ -203,15 +252,35 @@ if not st.session_state.get("viewing_profile"):
     st.session_state.viewing_profile = ctx.own_profile or (all_p[0] if all_p else "")
 
 # =========================================================
-# 3. BỐ CỘT: SIDEBAR (30%) + KHUNG CHÍNH (70%)
+# 3. BỐ CỘT: SIDEBAR + KHUNG CHÍNH (responsive theo màn hình)
 # =========================================================
-sb_ratio = 0.20
-main_ratio = 0.80
+# Trên màn hình lớn (PC): sidebar 25% + chính 75%
+# Trên màn hình vừa (laptop): sidebar 25% + chính 75%
+# Trên màn hình nhỏ (tablet/dien thoai): bo cot sidebar, dung 1 cot chinh
+
+# Phat hien chieu rong man hinh tu session state (neu co) hoac mac dinh 100%
+try:
+    _screen_w = st.session_state.get("_screen_width", 1000)
+except Exception:
+    _screen_w = 1000
+
+if _screen_w < 768:
+    # Dien thoai / tablet nho: cot sidebar rat be, an bang CSS
+    sb_ratio, main_ratio = 0.01, 0.99
+else:
+    # Laptop va PC: chia 2 cot
+    sb_ratio = 0.25
+    main_ratio = 0.75
 
 col_sb, col_main = st.columns([sb_ratio, main_ratio], gap="small")
 
 with col_sb:
-    render_sidebar(ctx)
+    if _screen_w >= 768:
+        render_sidebar(ctx)
+    else:
+        # Man hinh nho: hien thi nut mo sidebar (dan dau bang thong tin co ban)
+        st.button("\u2630 Menu", key="btn_mobile_menu", width='stretch')
+        st.caption("Chieu rong man hinh it hon 768px — sidebar duoc an de xem dung man chinh.")
 
 # Lưu last_view_mode cho admin (để khôi phục khi đăng nhập lại)
 if is_logged_in and ctx.role == "admin":
@@ -242,7 +311,7 @@ def _render_skill_run_page(ctx: UserContext):
             "Tham số (JSON)",
             value="{}",
             height=150,
-            help="Nhập tham số cho skill dưới dạng JSON, ví dụ: {\\\"from_year\\\": 2020, \\\"to_year\\\": 2025}",
+            help="Nhập tham số cho skill dưới dạng JSON, ví dụ: {\\\\\\\"from_year\\\\\\\": 2020, \\\\\\\"to_year\\\\\\\": 2025}",
         )
         c1, c2 = st.columns(2)
         with c1:
@@ -290,9 +359,8 @@ def _render_skill_run_page(ctx: UserContext):
             # Hiển thị kết quả
             st.json(result)
 
-
 # =========================================================
-# 4. KHUNG CHÍNH BÊN PHẢI (70%) - HIỂN THỊ NỘI DUNG THEO TASK
+# 4. KHUNG CHÍNH BÊN PHẢI - HIỂN THỊ NỘI DUNG THEO TASK
 # =========================================================
 with col_main:
     # Scroll về đầu trang khi chuyển mục/trang

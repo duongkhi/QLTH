@@ -629,6 +629,36 @@ def _render_tab_personal_info(ctx: UserContext):
                 if is_pub:
                     new_public_list.append(k)
 
+        # --- Trường đơn vị con (trung tâm/phòng ban) dùng cho thống kê hệ thống ---
+        st.markdown("**Đơn vị con (trung tâm/phòng ban) dùng thống kê hệ thống:**")
+        dvc_options = [
+            "Trung tâm Vật lý Hạt nhân",
+            "Trung tâm Vật lý kỹ thuật",
+            "Trung tâm Vật lý lý thuyết",
+            "Trung tâm Vật lý tính toán",
+            "Trung tâm Điện tử học lượng tử",
+            "Phòng tự động hóa",
+            "Trung tâm Vật lý ứng dụng và Thiết bị khoa học",
+            "Phòng quản lý tổng hợp",
+        ]
+        cur_dvc = data.get("don_vi_cong_tac_con", "")
+        dvc_c1, dvc_c2 = st.columns([4, 1.2])
+        dvc_val = dvc_c1.selectbox(
+            "Chọn đơn vị con",
+            options=[""] + dvc_options,
+            index=(dvc_options.index(cur_dvc) + 1) if cur_dvc in dvc_options else 0,
+            key="edit_don_vi_cong_tac_con",
+        )
+        dvc_pub = dvc_c2.checkbox(
+            "Public",
+            value=("don_vi_cong_tac_con" in current_public),
+            key="edit_don_vi_cong_tac_con_pub",
+        )
+        if dvc_val:
+            updated_values["don_vi_cong_tac_con"] = dvc_val
+            if dvc_pub:
+                new_public_list.append("don_vi_cong_tac_con")
+
         st.markdown("**➕ Thêm trường mới (tuỳ chọn):**")
         nc1, nc2, nc3 = st.columns([2, 4, 1.2])
         new_k = nc1.text_input("Tên trường (VD: hoc_vi, huong_nghien_cuu)", key="new_field_k")

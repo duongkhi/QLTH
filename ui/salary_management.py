@@ -12,6 +12,7 @@ from datetime import datetime
 from storage import load_json_from_db, save_json_to_db
 from ai_client import generate_gemini_text_real
 from docx_utils import extract_text_from_pdf_bytes, fix_tcvn3_text
+from user_service import tra_cuu_luong, get_salary_profiles, lay_luong_theo_thang
 
 SALARY_KEY = "salary_profiles"
 SALARY_OUTPUT_KEY = "salary_output"
@@ -310,7 +311,8 @@ def render_salary_management_page(ctx):
             # Lấy hệ số lương từ nguồn lương đầu tiên (nếu có)
             he_so = ""
             if item.get("nguon_luong"):
-                he_so = str(item["nguon_luong"][0].get("he_so_luong", ""))
+                nguon_0 = item["nguon_luong"][0]
+                he_so = str(nguon_0.get("he_so_luong", "")) if isinstance(nguon_0, dict) else ""
 
             c1, c2, c3, c4, c5, c6, c7, hc8, hc9, hc10 = st.columns([0.5, 2, 2.5, 1, 1.5, 1.5, 1.2, 1, 1, 1])
             c1.markdown(f"{idx + 1}")
@@ -340,7 +342,10 @@ def render_salary_management_page(ctx):
                 nguon_list = item.get("nguon_luong", [])
                 if nguon_list:
                     for n in nguon_list:
-                        st.markdown(f"- **{n.get('loai', '—')}**: hệ số {n.get('he_so_luong', '—')}, tiền {n.get('tien_luong', 0):,.0f} đ" if n.get('tien_luong') else f"- **{n.get('loai', '—')}**: hệ số {n.get('he_so_luong', '—')}")
+                        if isinstance(n, dict):
+                            st.markdown(f"- **{n.get('loai', '—')}**: hệ số {n.get('he_so_luong', '—')}, tiền {n.get('tien_luong', 0):,.0f} đ" if n.get('tien_luong') else f"- **{n.get('loai', '—')}**: hệ số {n.get('he_so_luong', '—')}")
+                        else:
+                            st.markdown(f"- {n}")
                 else:
                     st.caption("Chưa có thông tin nguồn lương.")
                 st.markdown("---")
@@ -506,7 +511,7 @@ Phòng Kế toán - Viện Vật lý
 
     st.markdown("---")
 
-    data = _load_salary_data()
+    data = get_salary_profiles()
     if not isinstance(data, dict):
         data = {}
 
@@ -535,14 +540,14 @@ Phòng Kế toán - Viện Vật lý
     filtered = {}
     for uid, rec in data.items():
         ten = rec.get("ho_va_ten", uid)
-        haystack = f"{uid} {ten}".lower()
+        email = rec.get("email", "")
+        haystack = f"{uid} {ten} {email}".lower()
         if not search_lower:
             filtered[uid] = rec
         else:
-            # Tìm trong tên hoặc trong biến động cuối
             match = search_lower in haystack
             if not match:
-                for bd in rec.get("bien_dong_luong", []):
+                for bd in rec.get("lich_su_bien_dong_luong", []):
                     bd_text = " ".join(str(v) for v in bd.values()).lower()
                     if search_lower in bd_text:
                         match = True
@@ -556,23 +561,21 @@ Phòng Kế toán - Viện Vật lý
     # Hiển thị bảng tổng hợp (mỗi user một hàng)
     for uid, rec in filtered.items():
         ho_ten = rec.get("ho_va_ten", uid)
+        email = rec.get("email", "")
         # Lấy biến động gần nhất để hiển thị tóm tắt
-        bd_list = rec.get("bien_dong_luong", [])
+        bd_list = rec.get("lich_su_bien_dong_luong", [])
         bd_cuoi = bd_list[-1] if bd_list else {}
         he_so = bd_cuoi.get("he_so_luong", "")
-        luong_cb = bd_cuoi.get("luong_co_ban", "")
-        ma_ngach = bd_cuoi.get("ma_ngach", "")
-
-        lt = rec.get("luong_thang_toi", {})
-        luong_thang_toi = lt.get("luong_thuc_nhan", "")
+        luong_cb = bd_cuoi.get("luong_cb", "")
+        ma_ngach = bd_cuoi.get("bac_luong", "")
 
         with st.container(border=True):
             c1, c2, c3, c4, c5, c6 = st.columns([2, 1.5, 1.2, 1.2, 1.5, 1])
-            c1.markdown(f"**{ho_ten}** (@{uid})")
+            c1.markdown(f"**{ho_ten}** (@{uid})" + (f" · {email}" if email else ""))
             c2.markdown(ma_ngach or "—")
             c3.markdown(he_so or "—")
             c4.markdown(str(luong_cb) if luong_cb != "" else "—")
-            c5.markdown(str(luong_thang_toi) if luong_thang_toi != "" else "—")
+            c5.markdown(str(bd_cuoi.get("tong_cong", "")) if bd_cuoi.get("tong_cong") not in (None, "") else "—")
             if c6.button("🔍 Chi tiết/Sửa", key=f"salary_det_{uid}"):
                 st.session_state["salary_selected_user"] = uid
                 st.rerun()
@@ -594,21 +597,22 @@ Phòng Kế toán - Viện Vật lý
 
         # --- Bảng biến động lương ---
         st.markdown("#### 📈 Biến động lương (toàn bộ)")
-        bd_list = rec.get("bien_dong_luong", [])
+        bd_list = rec.get("lich_su_bien_dong_luong", [])
         if not bd_list:
-            st.info("Chưa có biên biến động lương nào.")
+            st.info("Chưa có biến động lương nào.")
         else:
             # Hiển thị bảng biến động (mới nhất lên trên)
             for idx, bd in enumerate(reversed(bd_list)):
                 with st.container(border=True):
-                    cols = st.columns([1.2, 1.5, 1, 0.8, 1, 1, 2])
-                    cols[0].markdown(f"**{bd.get('ngay','')}**")
-                    cols[1].markdown(bd.get("so_quyet_dinh", ""))
-                    cols[2].markdown(bd.get("ma_ngach", ""))
-                    cols[3].markdown(bd.get("bac_luong", ""))
-                    cols[4].markdown(bd.get("he_so_luong", ""))
-                    cols[5].markdown(bd.get("luong_co_ban", ""))
-                    cols[6].markdown(bd.get("ghi_chu", ""))
+                    cols = st.columns([1.2, 1.5, 1, 0.8, 1, 1, 1.5, 2])
+                    cols[0].markdown(f"**{bd.get('ngay_hieu_luc','')}**")
+                    cols[1].markdown(bd.get("quyet_dinh_so", ""))
+                    cols[2].markdown(bd.get("bac_luong", ""))
+                    cols[3].markdown(bd.get("he_so_luong", ""))
+                    cols[4].markdown(bd.get("luong_cb", ""))
+                    cols[5].markdown(bd.get("tong_cong", ""))
+                    cols[6].markdown(bd.get("doc_hai_tien", ""))
+                    cols[7].markdown(bd.get("ly_do_bien_dong", ""))
 
             st.markdown("---")
             # Nút thêm biến động
@@ -617,27 +621,56 @@ Phòng Kế toán - Viện Vật lý
                 tmp_key = f"tmp_bd_{selected_uid}"
                 if tmp_key not in st.session_state:
                     st.session_state[tmp_key] = {
-                        "ngay": "",
-                        "so_quyet_dinh": "",
-                        "ma_ngach": "",
+                        "nam": datetime.now().year,
+                        "thang": datetime.now().month,
+                        "ngay_hieu_luc": "",
+                        "quyet_dinh_so": "",
                         "bac_luong": "",
                         "he_so_luong": "",
-                        "luong_co_ban": "",
-                        "phu_cap": "",
+                        "luong_cb": "",
+                        "pc_ld": "",
+                        "pc_ld_bang_tien": "",
+                        "vuot_khung": "",
+                        "he_so_vuot_khung": "",
+                        "vuot_khung_bang_tien": "",
+                        "phan_tram_huong": "",
+                        "he_so_doc_hai_theo_vi_tri": "",
+                        "he_so_doc_hai_tien": "",
+                        "doc_hai_theo_luong": "",
+                        "doc_hai_tien": "",
+                        "truy_linh": "",
+                        "bhiem_10_5": "",
+                        "truy_thu": "",
+                        "tong_cong": "",
                         "ghi_chu": "",
+                        "tien_tinh_thue": "",
+                        "ban_cung_luu_o_dau": "",
+                        "ly_do_bien_dong": "",
                     }
                 tmp = st.session_state[tmp_key]
 
                 with st.form(f"form_add_bd_{selected_uid}", clear_on_submit=False):
-                    tmp["ngay"] = st.text_input("Ngày (dd/mm/yyyy)", value=tmp["ngay"])
-                    tmp["so_quyet_dinh"] = st.text_input("Số quyết định", value=tmp["so_quyet_dinh"])
-                    tmp["ma_ngach"] = st.text_input("Mã ngạch", value=tmp["ma_ngach"])
-                    tmp["bac_luong"] = st.text_input("Bậc lương", value=tmp["bac_luong"])
-                    tmp["he_so_luong"] = st.text_input("Hệ số lương", value=tmp["he_so_luong"])
-                    tmp["luong_co_ban"] = st.text_input("Lương cơ bản", value=tmp["luong_co_ban"])
-                    tmp["phu_cap"] = st.text_input("Phụ cấp độc hại", value=tmp["phu_cap"])
-                    tmp["ghi_chu"] = st.text_area("Ghi chú (vì sao thay đổi: đi công tác, truy lĩnh...)",
-                                                  value=tmp["ghi_chu"])
+                    c1, c2 = st.columns(2)
+                    tmp["nam"] = c1.number_input("Năm", min_value=2000, max_value=2100,
+                                                 value=int(tmp.get("nam") or datetime.now().year))
+                    tmp["thang"] = c2.number_input("Tháng", min_value=1, max_value=12,
+                                                   value=int(tmp.get("thang") or datetime.now().month))
+                    tmp["ngay_hieu_luc"] = st.text_input("Ngày hiệu lực (dd/mm/yyyy)",
+                                                         value=tmp.get("ngay_hieu_luc", ""))
+                    tmp["quyet_dinh_so"] = st.text_input("Số quyết định",
+                                                         value=tmp.get("quyet_dinh_so", ""))
+                    tmp["bac_luong"] = st.text_input("Bậc lương", value=tmp.get("bac_luong", ""))
+                    tmp["he_so_luong"] = st.text_input("Hệ số lương", value=tmp.get("he_so_luong", ""))
+                    tmp["luong_cb"] = st.text_input("Lương cơ bản", value=tmp.get("luong_cb", ""))
+                    tmp["tong_cong"] = st.text_input("Tổng cộng (lương thực nhận)",
+                                                     value=tmp.get("tong_cong", ""))
+                    tmp["doc_hai_tien"] = st.text_input("Phụ cấp độc hại (tiền)",
+                                                        value=tmp.get("doc_hai_tien", ""))
+                    tmp["ghi_chu"] = st.text_area("Ghi chú", value=tmp.get("ghi_chu", ""))
+                    tmp["ly_do_bien_dong"] = st.text_area("Lý do biến động (bắt buộc)",
+                                                          value=tmp.get("ly_do_bien_dong", ""))
+                    tmp["ban_cung_luu_o_dau"] = st.text_input("Bản cứng lưu ở đâu (đường dẫn/file)",
+                                                              value=tmp.get("ban_cung_luu_o_dau", ""))
 
                     st.markdown("**📎 Hoặc upload quyết định (PDF) để tự điền:**")
                     qd_file = st.file_uploader("Chọn file PDF quyết định", type=["pdf"],
@@ -648,7 +681,23 @@ Phòng Kế toán - Viện Vật lý
                             text = _read_pdf_first_page(file_bytes)
                             info = _extract_qd_luong(text)
                         if info:
-                            st.session_state[tmp_key] = {**tmp, **info}
+                            # Map ket qua tu PDF sang cac truong moi
+                            mapped = {}
+                            if info.get("ngay"):
+                                tmp["ngay_hieu_luc"] = info["ngay"]
+                            if info.get("so_quyet_dinh"):
+                                tmp["quyet_dinh_so"] = info["so_quyet_dinh"]
+                            if info.get("bac_luong"):
+                                tmp["bac_luong"] = info["bac_luong"]
+                            if info.get("he_so_luong"):
+                                tmp["he_so_luong"] = str(info["he_so_luong"])
+                            if info.get("luong_co_ban"):
+                                tmp["luong_cb"] = str(info["luong_co_ban"])
+                            if info.get("phu_cap"):
+                                tmp["doc_hai_tien"] = str(info["phu_cap"])
+                            if info.get("ghi_chu"):
+                                tmp["ly_do_bien_dong"] = info["ghi_chu"]
+                            st.session_state[tmp_key] = {**tmp, **mapped}
                             st.success("✅ Đã trích xuất từ PDF. Vui lòng kiểm tra lại các ô trên.")
                             st.rerun()
                         else:
@@ -657,135 +706,107 @@ Phòng Kế toán - Viện Vật lý
                     col1, col2 = st.columns(2)
                     with col1:
                         if st.form_submit_button("💾 Lưu biến động"):
-                            # Chuẩn hóa số
-                            try:
-                                hsl = float(tmp["he_so_luong"]) if tmp["he_so_luong"] else 0.0
-                            except Exception:
-                                hsl = 0.0
-                            try:
-                                lcb = float(tmp["luong_co_ban"]) if tmp["luong_co_ban"] else 0.0
-                            except Exception:
-                                lcb = 0.0
-                            try:
-                                pc = float(tmp["phu_cap"]) if tmp["phu_cap"] else 0.0
-                            except Exception:
-                                pc = 0.0
-
-                            moi = {
-                                "ngay": tmp["ngay"],
-                                "so_quyet_dinh": tmp["so_quyet_dinh"],
-                                "ma_ngach": tmp["ma_ngach"],
-                                "bac_luong": tmp["bac_luong"],
-                                "he_so_luong": str(hsl),
-                                "luong_co_ban": str(lcb),
-                                "phu_cap_doc_hai": str(pc),
-                                "ghi_chu": tmp["ghi_chu"],
-                            }
-                            # Gộp ghi chú số quyết định nếu có
-                            if tmp["so_quyet_dinh"] and tmp["so_quyet_dinh"] not in tmp["ghi_chu"]:
-                                moi["ghi_chu"] = (tmp["ghi_chu"] + " | " + tmp["so_quyet_dinh"]).strip(" |")
-
-                            rec["bien_dong_luong"].append(moi)
-                            # Cập nhật lại luong_thang_toi dựa trên biến động mới nhất
-                            lt = rec.setdefault("luong_thang_toi", {})
-                            lt["he_so_luong"] = str(hsl)
-                            lt["luong_co_ban"] = str(lcb)
-                            lt["phu_cap"] = str(pc)
-                            # Tính lương thực nhận đơn giản
-                            lt["luong_thuc_nhan"] = str(int(lcb + pc))
-                            lt["thang"] = datetime.now().month
-                            lt["nam"] = datetime.now().year
-
-                            data[selected_uid] = rec
-                            if _save_salary_data(data):
-                                st.success("✅ Đã lưu biến động lương.")
-                                st.session_state[tmp_key] = {
-                                    "ngay": "", "so_quyet_dinh": "", "ma_ngach": "",
-                                    "bac_luong": "", "he_so_luong": "", "luong_co_ban": "",
-                                    "phu_cap": "", "ghi_chu": "",
-                                }
-                                st.rerun()
+                            if not tmp.get("ly_do_bien_dong"):
+                                st.error("❌ Vui lòng nhập lý do biến động.")
                             else:
-                                st.error("❌ Không lưu được dữ liệu.")
+                                moi = {
+                                    "nam": int(tmp.get("nam") or datetime.now().year),
+                                    "thang": int(tmp.get("thang") or datetime.now().month),
+                                    "ngay_hieu_luc": tmp.get("ngay_hieu_luc", ""),
+                                    "quyet_dinh_so": tmp.get("quyet_dinh_so", ""),
+                                    "ban_cung_luu_o_dau": tmp.get("ban_cung_luu_o_dau", ""),
+                                    "bac_luong": tmp.get("bac_luong", ""),
+                                    "ly_do_bien_dong": tmp.get("ly_do_bien_dong", ""),
+                                    "stt": tmp.get("stt", ""),
+                                    "pc_ld": tmp.get("pc_ld", ""),
+                                    "pc_ld_bang_tien": tmp.get("pc_ld_bang_tien", ""),
+                                    "he_so_luong": tmp.get("he_so_luong", ""),
+                                    "luong_he_so": tmp.get("luong_he_so", ""),
+                                    "vuot_khung": tmp.get("vuot_khung", ""),
+                                    "he_so_vuot_khung": tmp.get("he_so_vuot_khung", ""),
+                                    "vuot_khung_bang_tien": tmp.get("vuot_khung_bang_tien", ""),
+                                    "phan_tram_huong": tmp.get("phan_tram_huong", ""),
+                                    "luong_cb": tmp.get("luong_cb", ""),
+                                    "he_so_doc_hai_theo_vi_tri": tmp.get("he_so_doc_hai_theo_vi_tri", ""),
+                                    "he_so_doc_hai_tien": tmp.get("he_so_doc_hai_tien", ""),
+                                    "doc_hai_theo_luong": tmp.get("doc_hai_theo_luong", ""),
+                                    "doc_hai_tien": tmp.get("doc_hai_tien", ""),
+                                    "truy_linh": tmp.get("truy_linh", ""),
+                                    "bhiem_10_5": tmp.get("bhiem_10_5", ""),
+                                    "truy_thu": tmp.get("truy_thu", ""),
+                                    "tong_cong": tmp.get("tong_cong", ""),
+                                    "ghi_chu": tmp.get("ghi_chu", ""),
+                                    "tien_tinh_thue": tmp.get("tien_tinh_thue", ""),
+                                }
+                                rec["lich_su_bien_dong_luong"].append(moi)
+                                # Sap xep theo nam, thang
+                                rec["lich_su_bien_dong_luong"] = sorted(
+                                    rec["lich_su_bien_dong_luong"],
+                                    key=lambda b: (b.get("nam", 0), b.get("thang", 0))
+                                )
+                                data[selected_uid] = rec
+                                if _save_salary_data(data):
+                                    st.success("✅ Đã lưu biến động lương.")
+                                    st.session_state[tmp_key] = {
+                                        "nam": datetime.now().year,
+                                        "thang": datetime.now().month,
+                                        "ngay_hieu_luc": "",
+                                        "quyet_dinh_so": "",
+                                        "bac_luong": "",
+                                        "he_so_luong": "",
+                                        "luong_cb": "",
+                                        "pc_ld": "",
+                                        "pc_ld_bang_tien": "",
+                                        "vuot_khung": "",
+                                        "he_so_vuot_khung": "",
+                                        "vuot_khung_bang_tien": "",
+                                        "phan_tram_huong": "",
+                                        "he_so_doc_hai_theo_vi_tri": "",
+                                        "he_so_doc_hai_tien": "",
+                                        "doc_hai_theo_luong": "",
+                                        "doc_hai_tien": "",
+                                        "truy_linh": "",
+                                        "bhiem_10_5": "",
+                                        "truy_thu": "",
+                                        "tong_cong": "",
+                                        "ghi_chu": "",
+                                        "tien_tinh_thue": "",
+                                        "ban_cung_luu_o_dau": "",
+                                        "ly_do_bien_dong": "",
+                                    }
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Không lưu được dữ liệu.")
                     with col2:
                         if st.form_submit_button("❌ Hủy"):
                             st.session_state[tmp_key] = {
-                                "ngay": "", "so_quyet_dinh": "", "ma_ngach": "",
-                                "bac_luong": "", "he_so_luong": "", "luong_co_ban": "",
-                                "phu_cap": "", "ghi_chu": "",
+                                "nam": datetime.now().year,
+                                "thang": datetime.now().month,
+                                "ngay_hieu_luc": "",
+                                "quyet_dinh_so": "",
+                                "bac_luong": "",
+                                "he_so_luong": "",
+                                "luong_cb": "",
+                                "pc_ld": "",
+                                "pc_ld_bang_tien": "",
+                                "vuot_khung": "",
+                                "he_so_vuot_khung": "",
+                                "vuot_khung_bang_tien": "",
+                                "phan_tram_huong": "",
+                                "he_so_doc_hai_theo_vi_tri": "",
+                                "he_so_doc_hai_tien": "",
+                                "doc_hai_theo_luong": "",
+                                "doc_hai_tien": "",
+                                "truy_linh": "",
+                                "bhiem_10_5": "",
+                                "truy_thu": "",
+                                "tong_cong": "",
+                                "ghi_chu": "",
+                                "tien_tinh_thue": "",
+                                "ban_cung_luu_o_dau": "",
+                                "ly_do_bien_dong": "",
                             }
                             st.rerun()
-
-        # --- Bảng lương tháng tới ---
-        st.markdown("#### 📅 Lương tháng tới (thông báo sẽ gửi)")
-        lt = rec.get("luong_thang_toi", {})
-        if not lt:
-            lt = {
-                "thang": datetime.now().month,
-                "nam": datetime.now().year,
-                "he_so_luong": bd_list[-1].get("he_so_luong", "") if bd_list else "",
-                "luong_co_ban": bd_list[-1].get("luong_co_ban", "") if bd_list else "",
-                "phu_cap": bd_list[-1].get("phu_cap_doc_hai", "") if bd_list else "",
-                "tam_ung": "",
-                "tru": "",
-                "luong_thuc_nhan": "",
-                "ghi_chu": "",
-            }
-            rec["luong_thang_toi"] = lt
-
-        with st.form(f"form_luong_thang_{selected_uid}", clear_on_submit=False):
-            c1, c2 = st.columns(2)
-            lt["thang"] = c1.number_input("Tháng", min_value=1, max_value=12,
-                                          value=int(lt.get("thang", datetime.now().month)))
-            lt["nam"] = c2.number_input("Năm", min_value=2000, max_value=2100,
-                                        value=int(lt.get("nam", datetime.now().year)))
-
-            c3, c4, c5 = st.columns(3)
-            lt["he_so_luong"] = c3.text_input("Hệ số lương", value=str(lt.get("he_so_luong", "")))
-            lt["luong_co_ban"] = c4.text_input("Lương cơ bản", value=str(lt.get("luong_co_ban", "")))
-            lt["phu_cap"] = c5.text_input("Phụ cấp", value=str(lt.get("phu_cap", "")))
-
-            c6, c7, c8 = st.columns(3)
-            lt["tam_ung"] = c6.text_input("Tạm ứng", value=str(lt.get("tam_ung", "")))
-            lt["tru"] = c7.text_input("Trừ", value=str(lt.get("tru", "")))
-
-            # Tính thực nhận tự động nếu có thể
-            try:
-                lcb = float(lt.get("luong_co_ban", 0) or 0)
-                pc = float(lt.get("phu_cap", 0) or 0)
-                tam = float(lt.get("tam_ung", 0) or 0)
-                tr = float(lt.get("tru", 0) or 0)
-                thu_nhan = lcb + pc - tam - tr
-            except Exception:
-                thu_nhan = 0
-
-            lt["luong_thuc_nhan"] = str(int(thu_nhan))
-            c9, c10 = st.columns([2, 3])
-            c9.markdown(f"**Lương thực nhận:** {lt['luong_thuc_nhan']}")
-            lt["ghi_chu"] = c10.text_input("Ghi chú (nội dung thông báo lương)", value=str(lt.get("ghi_chu", "")))
-
-            if st.form_submit_button("💾 Lưu lương tháng tới"):
-                data[selected_uid] = rec
-                if _save_salary_data(data):
-                    st.success("✅ Đã lưu lương tháng tới.")
-                    st.rerun()
-                else:
-                    st.error("❌ Không lưu được dữ liệu.")
-
-        # --- Lịch sử lương (từ 1/1 năm trước đến nay) ---
-        st.markdown("#### 📜 Lịch sử lương thực nhận (từ 1/1 năm trước đến nay)")
-        lich_su = rec.get("lich_su_luong", [])
-        lich_su_loc = _loc_lich_su_tu_nam_truoc(lich_su)
-        if not lich_su_loc:
-            st.info("Chưa có lịch sử lương thực nhận.")
-        else:
-            # Hiển thị bảng lịch sử (mới nhất lên trên)
-            for ls in reversed(lich_su_loc):
-                cols = st.columns([1, 1, 2, 3])
-                cols[0].markdown(f"{ls.get('thang','')}/{ls.get('nam','')}")
-                cols[1].markdown(str(ls.get("luong_thuc_nhan", "")))
-                cols[2].markdown(ls.get("ghi_chu", ""))
-                # Cột 3 trống để căn lề
 
     elif selected_uid:
         st.warning("Không tìm thấy dữ liệu của user này.")
