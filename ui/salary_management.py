@@ -203,169 +203,245 @@ def _send_salary_email(to_email: str, subject: str, body: str) -> bool:
 def render_salary_management_page(ctx):
     st.title("💰 Quản trị Lương")
     st.caption("Chỉ Admin và Kế toán lương (Manager được phân quyền) được truy cập.")
-    st.markdown("---")
 
     # =================================================================
-    # PHẦN 1: FILE OUTPUT LƯƠNG THÁNG (tổng hợp toàn bộ user)
+    # BẢNG DANH SÁCH CÁN BỘ LƯƠNG THÁNG (gộp tìm kiếm + gửi thông báo)
     # =================================================================
-    st.markdown("### 📊 File output lương tháng (tổng hợp toàn bộ user)")
-    st.caption("Lưu và tải về các bảng tổng hợp lương tháng (ví dụ: salary_11_2026.xlsx).")
 
-    outputs = _load_salary_outputs()
-    if not isinstance(outputs, list):
-        outputs = []
+    summary = load_json_from_db("salary_monthly_summary") or {}
+    thang = summary.get("thang", "-")
+    nam = summary.get("nam", "-")
 
-    # Hiển thị danh sách file output đã lưu
-    if outputs:
-        st.markdown(f"**Tìm thấy {len(outputs)} file output đã lưu:**")
-        for idx, out in enumerate(reversed(outputs)):
-            with st.container(border=True):
-                c1, c2, c3, c4 = st.columns([3, 1.2, 1.2, 1.2])
-                c1.markdown(f"**{out.get('file_name', 'Không tên')}**")
-                c2.markdown(f"{out.get('thang', '')}/{out.get('nam', '')}")
-                c3.markdown(out.get("uploaded_at", ""))
-                c4.markdown(f"@{out.get('uploaded_by', '')}")
-                if out.get("file_b64"):
-                    try:
-                        file_bytes = base64.b64decode(out["file_b64"])
-                        st.download_button(
-                            label="⬇️ Tải về",
-                            data=file_bytes,
-                            file_name=out.get("file_name", "salary_output.xlsx"),
-                            key=f"dl_out_{idx}",
-                            width='stretch',
-                        )
-                    except Exception:
-                        st.error("Không đọc được file đã lưu.")
+    if not summary or not summary.get("du_lieu"):
+        st.info("Chưa có dữ liệu tổng hợp lương tháng. Vui lòng đồng bộ từ file Excel trước.")
     else:
-        st.info("Chưa có file output lương tháng nào được lưu.")
+        du_lieu = summary["du_lieu"]
+        if not isinstance(du_lieu, list):
+            du_lieu = []
 
-    st.markdown("---")
+        # -----------------------
+        # Ô tìm kiếm
+        # -----------------------
+        def _on_salary_table_search_change():
+            st.session_state["salary_table_search"] = st.session_state["salary_table_search_input"]
+            st.session_state["salary_table_page"] = 1
 
-    # Upload file output mới
-    with st.expander("⬆️ Upload file output lương tháng mới", expanded=False):
-        out_file = st.file_uploader(
-            "Chọn file Excel tổng hợp lương tháng (.xlsx, .xls)",
-            type=["xlsx", "xls"],
-            key="salary_output_upload",
+        search_q = st.text_input(
+            "🔍 Tìm kiếm (tên, email, mã ngạch...)",
+            value=st.session_state.get("salary_table_search", ""),
+            placeholder="Nhập tên, email hoặc mã ngạch...",
+            key="salary_table_search_input",
+            on_change=_on_salary_table_search_change,
+            label_visibility="collapsed",
         )
-        c_month, c_year = st.columns(2)
-        out_thang = c_month.number_input("Tháng", min_value=1, max_value=12,
-                                         value=datetime.now().month,
-                                         key="out_thang")
-        out_nam = c_year.number_input("Năm", min_value=2000, max_value=2100,
-                                      value=datetime.now().year,
-                                      key="out_nam")
-        out_note = st.text_input("Ghi chú (tùy chọn)", key="out_note")
+        search_lower = (st.session_state.get("salary_table_search", "") or "").strip().lower()
 
-        if out_file is not None:
-            if st.button("💾 Lưu file output", key="save_output_file", type="primary"):
-                file_bytes = out_file.getvalue()
-                file_b64 = base64.b64encode(file_bytes).decode("utf-8")
-                new_out = {
-                    "file_name": out_file.name,
-                    "file_b64": file_b64,
-                    "thang": int(out_thang),
-                    "nam": int(out_nam),
-                    "uploaded_at": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                    "uploaded_by": ctx.username,
-                    "note": out_note,
-                    "size": len(file_bytes),
-                }
-                outputs.append(new_out)
-                if _save_salary_outputs(outputs):
-                    st.success("✅ Đã lưu file output lương tháng.")
-                    st.rerun()
-                else:
-                    st.error("❌ Không lưu được file output.")
+        # Lọc danh sách theo từ khóa (tên, email, mã ngạch, nguồn lương, trạng thái)
+        filtered = []
+        for item in du_lieu:
+            nguon = ", ".join(item.get("nguon_luong", []))
+            trang_thai = item.get("trang_thai", "")
+            haystack = f"{item.get('ho_ten','')} {item.get('email','')} {item.get('ma_ngach','')} {nguon} {trang_thai} {item.get('tong_cong','')}".lower()
+            if not search_lower or search_lower in haystack:
+                filtered.append(item)
 
-    st.markdown("---")
+        total = len(filtered)
+        per_page = 10
+        total_pages = max(1, (total + per_page - 1) // per_page)
 
-    # =================================================================
-    # PHẦN 2: DỮ LIỆU TỔNG HỢP LƯƠNG THÁNG (từ Supabase)
-    # =================================================================
-    st.markdown("### 📈 Dữ liệu tổng hợp lương tháng (từ Supabase)")
-    st.caption("Dữ liệu được đồng bộ từ file bảng lương tháng (ví dụ: salary_11_2026.xlsx).")
+        # Khởi tạo trạng thái phân trang và chọn email
+        if "salary_table_page" not in st.session_state:
+            st.session_state["salary_table_page"] = 1
+        page = st.session_state["salary_table_page"]
+        if page < 1:
+            page = 1
+        if page > total_pages:
+            page = total_pages
+        st.session_state["salary_table_page"] = page
 
-    summary = load_json_from_db("salary_monthly_summary") or {}
-    if summary and summary.get("du_lieu"):
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Tháng/Năm", f"{summary.get('thang', '-')}/{summary.get('nam', '-')}")
-        c2.metric("Tổng số người", summary.get("tong_so_nguoi", 0))
-        c3.metric("Tổng tiền", f"{summary.get('tong_tien', 0):,.0f} đ")
-        st.caption(f"Nguồn: {summary.get('nguon', '')}")
+        if "salary_selected_indices" not in st.session_state:
+            st.session_state["salary_selected_indices"] = []
+        if "salary_chk_suffix" not in st.session_state:
+            st.session_state["salary_chk_suffix"] = 0
 
-        st.markdown("#### Danh sách chi tiết")
-        # Hiển thị bảng tóm tắt (mỗi người một dòng)
-        for item in summary["du_lieu"][:50]:  # Hiển thị tối đa 50 người đầu
-            with st.container(border=True):
-                cc1, cc2, cc3, cc4, cc5 = st.columns([2.5, 1.2, 1.2, 1.2, 2])
-                cc1.markdown(f"**{item.get('ho_ten','')}**")
-                cc2.markdown(item.get("email", ""))
-                cc3.markdown(f"{item.get('he_so_luong','')}")
-                cc4.markdown(f"{item.get('luong_co_ban',0):,.0f} đ")
-                cc5.markdown(f"{item.get('tong_cong',0):,.0f} đ")
-                if item.get("ghi_chu"):
-                    st.caption(f"Ghi chú: {item.get('ghi_chu')}")
-        if len(summary["du_lieu"]) > 50:
-            st.info(f"Có {len(summary['du_lieu'])} người, hiển thị 50 người đầu. Xem chi tiết trong file output đã upload.")
-    else:
-        st.info("Chưa có dữ liệu tổng hợp lương tháng. Bạn có thể chạy script `temp_sync_salary.py` để đồng bộ từ file Excel, hoặc upload file output ở phần trên.")
+        start = (page - 1) * per_page
+        end = start + per_page
+        page_items = filtered[start:end]
 
-    st.markdown("---")
+        # -----------------------
+        # Header bảng
+        # -----------------------
+        hc1, hc2, hc3, hc4, hc5, hc6, hc7, hc8, hc9, hc10 = st.columns([0.5, 2, 2.5, 1, 1.5, 1.5, 1.2, 1, 1, 1])
+        hc1.markdown("**STT**")
+        hc2.markdown("**Họ tên**")
+        hc3.markdown("**Email**")
+        hc4.markdown("**Mã ngạch**")
+        hc5.markdown("**Nguồn lương**")
+        hc6.markdown("**Hệ số**")
+        hc7.markdown("**Lương thực nhận**")
+        hc8.markdown("**Trạng thái**")
+        hc9.markdown("**Chi tiết**")
+        hc10.markdown("**Nhận email**")
 
-    # =================================================================
-    # PHẦN 3: GỬI THÔNG BÁO LƯƠNG (tự động tạo bảng & gửi email)
-    # =================================================================
-    st.markdown("### 📧 Gửi thông báo lương")
-    st.caption("Tìm trong danh sách cán bộ, ai có email sẽ tạo bảng lương và gửi thông báo.")
-
-    summary = load_json_from_db("salary_monthly_summary") or {}
     if summary and summary.get("du_lieu"):
         # Lọc các cán bộ có email
         du_lieu = summary["du_lieu"]
         co_email = [item for item in du_lieu if item.get("email")]
         khong_email = [item for item in du_lieu if not item.get("email")]
 
-        st.info(f"Tổng {len(du_lieu)} người · Có email: {len(co_email)} · Chưa có email: {len(khong_email)}")
+        # -----------------------
+        # Các hàng dữ liệu
+        # -----------------------
+        selected_indices = set(st.session_state.get("salary_selected_indices", []))
+        chk_suffix = st.session_state.get("salary_chk_suffix", 0)
 
-        if co_email:
-            # Hiển thị danh sách có email (tối đa 20 đầu để preview)
-            st.markdown("#### Danh sách cán bộ có email (sẽ nhận thông báo)")
-            for item in co_email[:20]:
-                c1, c2, c3, c4 = st.columns([2.5, 2, 1.2, 2])
-                c1.markdown(f"**{item.get('ho_ten','')}**")
-                c2.markdown(item.get("email", ""))
-                c3.markdown(f"{item.get('tong_cong',0):,.0f} đ")
-                if item.get("ghi_chu"):
-                    c4.caption(item.get("ghi_chu"))
+        for i, item in enumerate(page_items):
+            idx = start + i
+            ho_ten = item.get("ho_ten", "")
+            email = item.get("email", "")
+            ma_ngach = item.get("ma_ngach", "")
+            nguon_luong = ", ".join(item.get("nguon_luong", []))
+            tong_cong = item.get("tong_cong", 0)
+            trang_thai = item.get("trang_thai", "")
+            ghi_chu = item.get("ghi_chu", "")
+            co_email = bool(email)
+            is_checked = idx in selected_indices
+
+            # Lấy hệ số lương từ nguồn lương đầu tiên (nếu có)
+            he_so = ""
+            if item.get("nguon_luong"):
+                he_so = str(item["nguon_luong"][0].get("he_so_luong", ""))
+
+            c1, c2, c3, c4, c5, c6, c7, hc8, hc9, hc10 = st.columns([0.5, 2, 2.5, 1, 1.5, 1.5, 1.2, 1, 1, 1])
+            c1.markdown(f"{idx + 1}")
+            c2.markdown(f"**{ho_ten}**")
+            c3.markdown(email if email else "—")
+            c4.markdown(ma_ngach if ma_ngach else "—")
+            c5.markdown(nguon_luong if nguon_luong else "—")
+            c6.markdown(he_so if he_so != "" else "—")
+            c7.markdown(f"{tong_cong:,.0f} đ" if tong_cong else "—")
+            hc8.markdown(trang_thai if trang_thai else "—")
+
+            # Nút xem chi tiết (kính lúp)
+            with hc9.popover("🔍", use_container_width=True,
+                            key=f"popover_detail_{idx}_{chk_suffix}"):
+                st.markdown(f"### 👤 Chi tiết: {ho_ten}")
+                st.markdown(f"**Email:** {email if email else '—'}")
+                st.markdown(f"**Mã ngạch:** {ma_ngach if ma_ngach else '—'}")
+                st.markdown(f"**Tháng/Năm:** {thang}/{nam}")
+                st.markdown(f"**Trạng thái:** {trang_thai if trang_thai else '—'}")
+                if ghi_chu:
+                    st.markdown(f"**Ghi chú:** {ghi_chu}")
                 else:
-                    c4.markdown("—")
-            if len(co_email) > 20:
-                st.info(f"Hiển thị 20 người đầu. Tổng cộng {len(co_email)} người có email.")
+                    st.markdown("**Ghi chú:** —")
 
-            # Nút gửi thông báo
-            if st.button("📧 Gửi thông báo lương cho tất cả cán bộ có email", type="primary", key="btn_send_salary"):
+                # Chi tiết từng nguồn lương
+                st.markdown("#### 💰 Chi tiết nguồn lương")
+                nguon_list = item.get("nguon_luong", [])
+                if nguon_list:
+                    for n in nguon_list:
+                        st.markdown(f"- **{n.get('loai', '—')}**: hệ số {n.get('he_so_luong', '—')}, tiền {n.get('tien_luong', 0):,.0f} đ" if n.get('tien_luong') else f"- **{n.get('loai', '—')}**: hệ số {n.get('he_so_luong', '—')}")
+                else:
+                    st.caption("Chưa có thông tin nguồn lương.")
+                st.markdown("---")
+                st.caption("Thông tin trên sẽ được đưa vào nội dung email thông báo lương.")
+
+            # Checkbox nhận email (chỉ hiển thị nếu có email)
+            if co_email:
+                def _make_cb(index):
+                    def _cb():
+                        key = f"chk_{index}_{st.session_state.get('salary_chk_suffix', 0)}"
+                        val = st.session_state.get(key, False)
+                        sel = set(st.session_state.get("salary_selected_indices", []))
+                        if val:
+                            sel.add(index)
+                        else:
+                            sel.discard(index)
+                        st.session_state["salary_selected_indices"] = list(sel)
+                    return _cb
+
+                hc10.checkbox(
+                    "Nhận email",
+                    value=is_checked,
+                    key=f"chk_{idx}_{chk_suffix}",
+                    on_change=_make_cb(idx),
+                    label_visibility="collapsed",
+                )
+            else:
+                hc10.markdown("—")
+
+        st.markdown("---")
+
+        # -----------------------
+        # Điều khiển cuối bảng
+        # -----------------------
+        btn_c1, btn_c2, btn_c3, btn_c4 = st.columns([1.5, 1.5, 2, 2])
+
+        with btn_c1:
+            if st.button("☑️ Chọn tất cả có email", key="btn_check_all", use_container_width=True):
+                all_with_email = [start + i for i, it in enumerate(page_items) if it.get("email")]
+                st.session_state["salary_selected_indices"] = list(
+                    set(st.session_state.get("salary_selected_indices", [])) | set(all_with_email)
+                )
+                st.session_state["salary_chk_suffix"] = chk_suffix + 1
+                st.rerun()
+
+        with btn_c2:
+            if st.button("☐ Bỏ chọn tất cả", key="btn_clear_all", use_container_width=True):
+                st.session_state["salary_selected_indices"] = []
+                st.session_state["salary_chk_suffix"] = chk_suffix + 1
+                st.rerun()
+
+        with btn_c3:
+            st.markdown(f"**Trang {page} / {total_pages}** · **{total} người**")
+
+        with btn_c4:
+            nav_c1, nav_c2 = st.columns(2)
+            if nav_c1.button("◀ Trang trước", key="btn_prev_page", use_container_width=True, disabled=(page <= 1)):
+                st.session_state["salary_table_page"] = page - 1
+                st.rerun()
+            if nav_c2.button("Trang sau ▶", key="btn_next_page", use_container_width=True, disabled=(page >= total_pages)):
+                st.session_state["salary_table_page"] = page + 1
+                st.rerun()
+
+        # Nút gửi email cho những người được chọn
+        selected_indices = set(st.session_state.get("salary_selected_indices", []))
+        selected_items = [filtered[i] for i in selected_indices if i < len(filtered)]
+        selected_with_email = [it for it in selected_items if it.get("email")]
+        if selected_with_email:
+            st.info(f"Đã chọn **{len(selected_with_email)}** người có email để gửi thông báo.")
+            if st.button("📧 Gửi thông báo lương cho người đã chọn", type="primary", key="btn_send_selected"):
                 # Tạo nội dung email cho mỗi người
                 sent_count = 0
                 fail_count = 0
-                for item in co_email:
+                for item in selected_with_email:
                     email = item.get("email", "")
                     ho_ten = item.get("ho_ten", "")
                     tong_cong = item.get("tong_cong", 0)
-                    he_so = item.get("he_so_luong", 0)
-                    luong_cb = item.get("luong_co_ban", 0)
                     ghi_chu = item.get("ghi_chu", "")
+                    trang_thai = item.get("trang_thai", "")
 
-                    subject = f"[Lương tháng {summary.get('thang', '')}/{summary.get('nam', '')}] Thông báo lương của {ho_ten}"
+                    # Lấy hệ số và lương cơ bản từ nguồn lương đầu tiên
+                    he_so = ""
+                    luong_cb = 0
+                    nguon_list = item.get("nguon_luong", [])
+                    if nguon_list:
+                        he_so = str(nguon_list[0].get("he_so_luong", ""))
+                        luong_cb = nguon_list[0].get("tien_luong", 0) or 0
+
+                    nguon_str = ", ".join(nguon_list)
+
+                    subject = f"[Lương tháng {thang}/{nam}] Thông báo lương của {ho_ten}"
                     body = f"""Kính gửi {ho_ten},
 
-Đây là thông báo lương tháng {summary.get('thang', '')}/{summary.get('nam', '')} của bạn.
+Đây là thông báo lương tháng {thang}/{nam} của bạn.
 
 Chi tiết:
-- Mã ngạch / Hệ số lương: {he_so}
+- Nguồn lương: {nguon_str}
+- Mã ngạch / Hệ số lương: {ma_ngach if ma_ngach else '—'} / {he_so if he_so else '—'}
 - Lương cơ bản: {luong_cb:,.0f} đ
 - Tổng lương thực lĩnh: {tong_cong:,.0f} đ
+- Trạng thái: {trang_thai if trang_thai else '—'}
 - Ghi chú: {ghi_chu if ghi_chu else '—'}
 
 Vui lòng kiểm tra và phản hồi lại phòng Kế toán nếu có thắc mắc.
@@ -373,8 +449,7 @@ Vui lòng kiểm tra và phản hồi lại phòng Kế toán nếu có thắc m
 Trân trọng,
 Phòng Kế toán - Viện Vật lý
 """
-
-                    # Gửi email (SMTP nếu có cấu hình, không thì in preview)
+                    # Gửi email
                     ok = _send_salary_email(email, subject, body)
                     if ok:
                         sent_count += 1
@@ -386,7 +461,7 @@ Phòng Kế toán - Viện Vật lý
                 if fail_count > 0:
                     st.error(f"❌ Không gửi được cho {fail_count} cán bộ.")
         else:
-            st.info("Không có cán bộ nào có email trong danh sách.")
+            st.caption("Vui lòng tích ô 'Nhận email' ít nhất cho một người để gửi thông báo.")
     else:
         st.info("Chưa có dữ liệu tổng hợp lương tháng. Vui lòng đồng bộ từ file Excel trước.")
 
