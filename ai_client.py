@@ -70,7 +70,7 @@ def call_model_json(prompt, progress, start=20, end=95, label="🤖 AI"):
     raise RuntimeError(f"NVIDIA quá tải hoặc lỗi. Last error: {last_err!r}") from last_err
 
 
-def generate_gemini_text(prompt: str) -> str | None:
+def generate_gemini_text(prompt: str, system: str | None = None) -> str | None:
     """
     Gọi NVIDIA API trả về văn bản thuần (mặc định).
     Giữ tên generate_gemini_text để các module cũ import mà không lỗi.
@@ -82,7 +82,7 @@ def generate_gemini_text(prompt: str) -> str | None:
     last_err = None
     for att in range(MAX_RETRIES + 1):
         try:
-            text = call_nvidia_text(prompt)
+            text = call_nvidia_text(prompt, system=system)
             if text:
                 return text
             raise RuntimeError("NVIDIA trả về trống.")
@@ -153,13 +153,15 @@ def generate_gemini_text_real(prompt: str) -> str | None:
     return None
 
 
-def _generate_with_retry(prompt: str, max_retries=1):
+def _generate_with_retry(prompt: str, max_retries=1, system: str | None = None):
     """
     Gọi NVIDIA API với văn bản thuần (thay thế cho Gemini function calling).
     Trả về chuỗi text hoặc None nếu lỗi.
 
     max_retries=1: chỉ thử lại 1 lần (2 giây) nếu lỗi tạm thời (5xx/timeout).
     Lỗi 400/401/404 (sai key, sai model, sai payload) sẽ không retry để tránh đơ ứng dụng.
+
+    system: Hướng dẫn hệ thống (role system), gửi kèm nếu không None.
     """
     client = get_client()
     if not client:
@@ -168,7 +170,7 @@ def _generate_with_retry(prompt: str, max_retries=1):
     last_err = None
     for att in range(max_retries + 1):
         try:
-            text = call_nvidia_text(prompt)
+            text = call_nvidia_text(prompt, system=system)
             if text:
                 return text
             raise RuntimeError("NVIDIA trả về trống.")

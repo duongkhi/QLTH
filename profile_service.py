@@ -3,7 +3,7 @@ from storage import (load_user_profile, save_user_profile,
                      load_name_mapping, load_json_from_db, save_json_to_db,
                      get_all_existing_profiles)
 from security import (_norm, _strip_diacritics, _name_matches_query,
-                      identity_matches, _tokenize)
+                     identity_matches, _tokenize, normalize_author_role)
 from name_mapping import update_name_mapping_from_profile
 from journal_service import load_journal_catalog
 
@@ -274,20 +274,16 @@ def _normalize_one_publication(entry):
     if not ten_cong_trinh:
         return None
 
-    # Ưu tiên giá trị đã có từ Gemini (nếu file đính kèm đã qua trích xuất AI)
-    tac_gia_dau = bool(entry.get("tac_gia_dau", False))
-    tac_gia_lien_he = bool(entry.get("tac_gia_lien_he", False))
-    dong_tac_gia = bool(entry.get("dong_tac_gia", False))
-    if not (tac_gia_dau or tac_gia_lien_he or dong_tac_gia):
-        vt = vai_tro.lower()
-        if "tác giả đầu" in vt or "tac gia dau" in vt or "first author" in vt:
-            tac_gia_dau = True
-        elif "tác giả liên hệ" in vt or "tac gia lien he" in vt or "corresponding" in vt:
-            tac_gia_lien_he = True
-        elif "đồng tác giả" in vt or "dong tac gia" in vt or "co-author" in vt:
-            dong_tac_gia = True
-        else:
-            dong_tac_gia = True
+    # Chuẩn hóa vai trò tác giả (first author / corresponding author / co-author)
+    # Uu tien gia tri tu Gemini neu da co
+    role_info = normalize_author_role(vai_tro)
+    tac_gia_chinh = bool(entry.get("tac_gia_chinh", role_info["tac_gia_chinh"]))
+    tac_gia_lien_he = bool(entry.get("tac_gia_lien_he", role_info["tac_gia_lien_he"]))
+    dong_tac_gia = bool(entry.get("dong_tac_gia", role_info["dong_tac_gia"]))
+    if not (tac_gia_chinh or tac_gia_lien_he or dong_tac_gia):
+        dong_tac_gia = True
+    # Luu vai tro hien thi tieng Viet (uu tien tieng Viet)
+    vai_tro_display = role_info["vai_tro_viet_nam"]
 
     # Ưu tiên phan_loai từ Gemini nếu đã có (không ghi đè nếu đã đánh giá trước đó)
     phan_loai_existing = str(entry.get("phan_loai", "")).strip()
@@ -309,8 +305,8 @@ def _normalize_one_publication(entry):
         "noi_cong_bo": noi_cong_bo,
         "loai_cong_trinh": loai_cong_trinh,
         "phan_loai": phan_loai,
-        "vai_tro": vai_tro,
-        "tac_gia_dau": tac_gia_dau,
+        "vai_tro": vai_tro_display,
+        "tac_gia_chinh": tac_gia_chinh,
         "tac_gia_lien_he": tac_gia_lien_he,
         "dong_tac_gia": dong_tac_gia,
         "doi": doi,
@@ -432,7 +428,9 @@ def resolve_profile(query, allowed):
     for k, info in m.items():
         if k not in allowed:
             continue
-        names = [info.get("display_name", "")] + list(info.get("aliases", []))
+        # Tim kiem theo ten tieng Viet (uu tien) va tieng Anh
+        names = [info.get("display_name", ""), info.get("display_name_en", "")]
+        names += list(info.get("aliases", [])) + list(info.get("aliases_en", []))
         for n in names:
             if not n:
                 continue

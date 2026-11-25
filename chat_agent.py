@@ -10,6 +10,7 @@ from security import (_norm, _strip_diacritics, detect_name_from_data,
 from storage import (
     load_user_profile, load_name_mapping, get_all_existing_profiles,
 )
+from name_mapping import get_display_name
 from profile_service import (
     resolve_profile, suggest_profile_key, merge_and_save, find_identity_matches,
 )
@@ -80,7 +81,7 @@ def list_accessible_profiles(allowed):
     return [
         {
             "profile_key": k,
-            "display_name": m.get(k, {}).get("display_name", ""),
+            "display_name": get_display_name(k, m),
             "has_data": bool(profiles.get(k)),
         }
         for k in allowed
@@ -116,7 +117,7 @@ def _build_registry_ctx(allowed_profiles):
     return {
         "load_profile": load_user_profile,
         "allowed_profiles": allowed_profiles,
-        "get_name": lambda k: m.get(k, {}).get("display_name") or detect_name_from_data(load_user_profile(k)) or k,
+        "get_name": lambda k: get_display_name(k, m) or detect_name_from_data(load_user_profile(k)) or k,
     }
 
 
@@ -126,6 +127,15 @@ def _build_registry_ctx(allowed_profiles):
 def _build_system_prompt(role, own_profile, viewing_profile, allowed_profiles_count, can_finance, db_prompt):
     own_display = own_profile if own_profile else "(chưa đăng nhập / chưa có)"
     view_display = viewing_profile if viewing_profile else "(không rõ)"
+
+    # Rut gon db_prompt neu qua dai de tranh gui khoi van ban lon di lai moi lan hoi du lieu
+    business_context = ""
+    if db_prompt:
+        dp = db_prompt.strip()
+        if len(dp) > 400:
+            business_context = dp[:300] + "..."
+        else:
+            business_context = dp
 
     tool_list = """
 Các công cụ có sẵn (bạn YÊU CẦU gọi bằng cách trả về JSON action):
@@ -141,7 +151,7 @@ Các công cụ có sẵn (bạn YÊU CẦU gọi bằng cách trả về JSON a
         tool_list += "\n- Các công cụ từ TOOL_REGISTRY (lương, lũy kế, xuất Excel) nếu có quyền."
 
     return (
-        f"{db_prompt}\n\n"
+        f"{business_context}\n\n"
         f"--- BỐI CẢNH ---\n"
         f"User: vai trò {role}.\n"
         f"Profile riêng: {own_display}.\n"
@@ -150,13 +160,14 @@ Các công cụ có sẵn (bạn YÊU CẦU gọi bằng cách trả về JSON a
         f"{tool_list}\n"
         f"--- QUY TẮC ---\n"
         f"1. Chào hỏi/cảm ơn → trả lời trực tiếp, không gọi công cụ.\n"
-        f"2. Hỏi về một người → gọi get_profile_data với tham số profile_name là tên người đó.\n"
+        f"2. Hỏi về một người (\"X là ai\", \"thông tin về X\", \"hồ sơ X\") → gọi get_profile_data với profile_name là tên người đó. Nếu không tìm thấy hồ sơ, có thể gọi query_finance_data để tìm đề tài/tài chính của người đó, rồi trả lời ghép.\n"
+        f"3. Hỏi về đề tài / chủ nhiệm đề tài / kinh phí → chỉ gọi query_finance_data, không gọi get_profile_data.\n"
         f"3. Hỏi danh sách đề tài → gọi query_finance_data (action='list').\n"
         f"4. Hỏi quy định → gọi search_knowledge.\n"
         f"5. Trả về CHỈ duy nhất một đối tượng JSON:\n"
-        f"   {{\"action\": \"ten_cong_cu\", \"args\": {{...}}}}\n"
+        f'   {{"action": "ten_cong_cu", "args": {{...}}}}\n'
         f"   hoặc\n"
-        f"   {{\"action\": \"final\", \"answer\": \"câu trả lời cuối cùng cho user\"}}\n"
+        f'   {{"action": "final", "answer": "câu trả lời cuối cùng cho user"}}\n'
         f"6. Không được kèm markdown, không được giải thích thêm ngoài JSON.\n"
         f"--- Tiếng Việt, ngắn gọn, chính xác ---\n"
     )
@@ -175,17 +186,22 @@ def _build_intent_prompt(user_q: str) -> str:
 # ============================================================
 # LUỒNG 1: CHAT NHANH — không cần dữ liệu
 # ============================================================
+CHAT_SYSTEM_PROMPT = (
+    "Bạn là trợ lý AI thân thiện, trả lời ngắn gọn bằng tiếng Việt. "
+    "Không được tra cứu dữ liệu từ hệ thống, không được gọi công cụ nào. "
+    "Trả lời tự nhiên, nhẹ nhàng, không cần suy nghĩ phức tạp."
+)
+
 def _handle_chat(user_q: str, db_prompt: str, hist_text: str = "") -> str:
     """Trả lời trực tiếp, không gọi Supabase, không gọi công cụ."""
+    # Ưu tiên prompt hệ thống nếu admin đã cấu hình và chưa quá dài, ngược lại dùng prompt ngắn gọn
+    system = db_prompt.strip() if db_prompt and len(db_prompt) < 800 else CHAT_SYSTEM_PROMPT
     prompt = (
-        f"{db_prompt}\n\n"
-        f"Bạn là trợ lý AI thân thiện, trả lời ngắn gọn bằng tiếng Việt.\n"
-        f"Không được tra cứu dữ liệu từ hệ thống, không được gọi công cụ nào.\n\n"
         f"{hist_text}"
         f"Câu hỏi: {user_q}\n\nTrả lời:"
     )
     try:
-        ans = _generate_with_retry(prompt)
+        ans = _generate_with_retry(prompt, system=system)
         return ans.strip() if ans else "Xin chào! Tôi có thể giúp gì cho bạn?"
     except Exception:
         return "Xin chào! Tôi có thể giúp gì cho bạn?"
@@ -200,7 +216,7 @@ def _list_accessible_profiles(allowed: list) -> list:
     return [
         {
             "profile_key": k,
-            "display_name": m.get(k, {}).get("display_name", ""),
+            "display_name": get_display_name(k, m),
             "has_data": bool(profiles.get(k)),
         }
         for k in allowed
@@ -385,7 +401,6 @@ def _synthesize_retrieve_answer(user_q: str, action: str, result: dict,
     )
 
     follow_up_prompt = (
-        f"{sys_prompt}\n\n"
         f"{hist_text}"
         f"Kết quả từ công cụ '{action}':\n{json.dumps(result, ensure_ascii=False)}\n\n"
         f"Câu hỏi gốc: {user_q}\n\n"
@@ -394,7 +409,7 @@ def _synthesize_retrieve_answer(user_q: str, action: str, result: dict,
     )
 
     try:
-        final_text = _generate_with_retry(follow_up_prompt)
+        final_text = _generate_with_retry(follow_up_prompt, system=sys_prompt)
         if final_text:
             cleaned = final_text.strip()
             if cleaned.startswith("```json"):
@@ -411,6 +426,10 @@ def _synthesize_retrieve_answer(user_q: str, action: str, result: dict,
                     return final_answer.strip()
             except Exception:
                 pass
+            # Nếu JSON không lấy được answer, thử trích xuất bằng regex
+            m = _re.search(r'"answer"\s*:\s*"([^"]+)"', cleaned or "")
+            if m:
+                return m.group(1).strip()
             return cleaned
     except Exception:
         pass
@@ -432,6 +451,7 @@ def _build_file_extract_prompt(raw_text: str, filename: str) -> str:
     parts.append("(key viet thuong, gach duong, tieng Viet khong dau). Truong nao khong co thi de null hoac bo qua.\n\n")
     parts.append("THONG TIN CA NHAN (bat buoc neu co):\n")
     parts.append("- 'ho_va_ten', 'hoc_ham', 'hoc_vi', 'chuc_vu', 'don_vi_cong_tac', 'ngay_sinh' (DD/MM/YYYY)\n")
+    parts.append("- 'ho_va_ten_anh': ten tieng anh neu co trong file (vi du: 'Vu Duong', 'Nguyen Van A')\n")
     parts.append("- 'huong_nghien_cuu': doan mo tro huong nghien cuu chinh\n\n")
     parts.append("DANH SACH BAI BAO / CONG TRINH KHOA HOC ('cong_bo'):\n")
     parts.append("Moi phan tu la mot dict co cac truong sau:\n")
@@ -440,7 +460,7 @@ def _build_file_extract_prompt(raw_text: str, filename: str) -> str:
     parts.append("- 'noi_cong_bo': ten tap chi, hoi nghi, xuat ban\n")
     parts.append("- 'loai_cong_trinh': loai cong trinh (vi du: 'Tap chi quoc te', 'Hoi nghi quoc te', 'Tap chi trong nuoc', 'Hoi nghi trong nuoc')\n")
     parts.append("- 'phan_loai': phan loai chat luong (Scopus Q1/Q2/Q3/Q4, ISI/SCI-EE Q1-Q4, SCI Q1-Q4, Tap chi quoc te, Hoi nghi quoc te, Tap chi trong nuoc, Hoi nghi trong nuoc, Khac)\n")
-    parts.append("- 'vai_tro': vai tro tac gia ('Tac gia dau', 'Tac gia lien he', 'Dong tac gia')\n")
+    parts.append("- 'vai_tro': vai tro tac gia ('Tac gia dau' / 'first author' = tac gia chinh; 'Tac gia lien he' / 'corresponding author' = tac gia lien he; 'Dong tac gia' / 'co-author' = dong tac gia)\n")
     parts.append("- 'doi': ma DOI neu co\n")
     parts.append("- 'issn': ma ISSN neu co\n\n")
     parts.append("DANH SACH DE TAI ('de_tai'):\n")
@@ -637,7 +657,6 @@ def chat_with_ai(user_q, allowed_profiles, username, user_record,
         )
 
         full_prompt = (
-            f"{sys_prompt}\n\n"
             f"{hist_text}"
             f"Câu hỏi hiện tại: {user_q}\n\n"
             f"Trả về JSON action:"
@@ -645,7 +664,7 @@ def chat_with_ai(user_q, allowed_profiles, username, user_record,
 
         for _ in range(3):
             try:
-                resp_text = _generate_with_retry(full_prompt)
+                resp_text = _generate_with_retry(full_prompt, system=sys_prompt)
             except Exception:
                 return "Xin lỗi, không xử lý được.", False, None, "error"
 
@@ -668,6 +687,10 @@ def chat_with_ai(user_q, allowed_profiles, username, user_record,
                 action = data.get("action")
                 args = data.get("args", {}) or {}
             except Exception:
+                # AI có thể trả về text kèm JSON, không phải JSON thuần
+                m = _re.search(r'"answer"\s*:\s*"([^"]+)"', resp_text or "")
+                if m:
+                    return m.group(1).strip(), False, None, "chat"
                 return (resp_text or "Xin lỗi.").strip(), False, None, "chat"
 
             if action == "final":

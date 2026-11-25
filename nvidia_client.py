@@ -32,10 +32,16 @@ def _get_nvidia_api_key() -> str | None:
     return key or None
 
 
-def call_nvidia(prompt: str, model: str = "nvidia/nemotron-3.5-super-vl-120b-a12b",
+def call_nvidia(prompt: str, system: str | None = None, model: str = "nvidia/nemotron-3.5-super-vl-120b-a12b",
                 temperature: float = 0.3, max_tokens: int = 1024) -> str | None:
     """
     Gọi NVIDIA API (Nemotron) để sinh văn bản.
+
+    Parameters:
+        prompt: Nội dung người dùng (role user).
+        system: Hướng dẫn hệ thống (role system), gửi kèm nếu không None.
+        model: Model NVIDIA NIM.
+        temperature, max_tokens: Tham số sinh văn bản.
 
     Returns:
         Chuỗi văn bản trả về, hoặc None nếu lỗi.
@@ -46,11 +52,14 @@ def call_nvidia(prompt: str, model: str = "nvidia/nemotron-3.5-super-vl-120b-a12
 
     url = "https://integrate.api.nvidia.com/v1/chat/completions"
 
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+
     payload = {
         "model": model,
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
+        "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
         "stream": False,
@@ -90,7 +99,7 @@ def call_nvidia(prompt: str, model: str = "nvidia/nemotron-3.5-super-vl-120b-a12
         return None
 
 
-def call_nvidia_json(prompt: str, model: str = "nvidia/nemotron-3.5-super-vl-120b-a12b",
+def call_nvidia_json(prompt: str, system: str | None = None, model: str = "nvidia/nemotron-3.5-super-vl-120b-a12b",
                      temperature: float = 0.2, max_tokens: int = 2048) -> str | None:
     """
     Gọi NVIDIA API yêu cầu trả về JSON thuần.
@@ -102,15 +111,15 @@ def call_nvidia_json(prompt: str, model: str = "nvidia/nemotron-3.5-super-vl-120
         "không được bọc trong ```json ..., không giải thích thêm.\n\n"
     )
     full_prompt = json_instruction + prompt
-    return call_nvidia(full_prompt, model=model, temperature=temperature, max_tokens=max_tokens)
+    return call_nvidia(full_prompt, system=system, model=model, temperature=temperature, max_tokens=max_tokens)
 
 
-def call_nvidia_text(prompt: str, model: str = "nvidia/nemotron-3.5-super-vl-120b-a12b",
+def call_nvidia_text(prompt: str, system: str | None = None, model: str = "nvidia/nemotron-3.5-super-vl-120b-a12b",
                      temperature: float = 0.3, max_tokens: int = 1024) -> str | None:
     """
     Alias của call_nvidia, giữ tên để tương thích với mã cũ gọi generate_gemini_text.
     """
-    return call_nvidia(prompt, model=model, temperature=temperature, max_tokens=max_tokens)
+    return call_nvidia(prompt, system=system, model=model, temperature=temperature, max_tokens=max_tokens)
 
 
 def call_ai_with_fallback(prompt: str) -> str | None:
@@ -126,6 +135,7 @@ def call_ai_with_fallback(prompt: str) -> str | None:
 # ==========================================
 def call_nvidia_stream(
     prompt: str,
+    system: str | None = None,
     model: str = "nvidia/nemotron-3.5-lightning-30b-a3b",
     temperature: float = 0.3,
     max_tokens: int = 1024,
@@ -133,6 +143,12 @@ def call_nvidia_stream(
     """
     Generator gọi NVIDIA NIM với stream=True, yield từng đoạn văn bản ngay khi nhận được.
     Dùng cho khung chat thông thường để người dùng thấy chữ hiện ra ngay lập tức.
+
+    Parameters:
+        prompt: Nội dung người dùng (role user).
+        system: Hướng dẫn hệ thống (role system), gửi kèm nếu không None.
+        model: Model NVIDIA NIM.
+        temperature, max_tokens: Tham số sinh văn bản.
 
     Yields:
         Chuỗi văn bản partial (delta) từ NVIDIA NIM.
@@ -143,11 +159,14 @@ def call_nvidia_stream(
 
     url = "https://integrate.api.nvidia.com/v1/chat/completions"
 
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+
     payload = {
         "model": model,
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
+        "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
         "stream": True,

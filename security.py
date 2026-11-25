@@ -69,6 +69,8 @@ def _dob_match(a, b):
 
 # ---------- Detect ----------
 NAME_FIELDS = ("ho_va_ten", "ho_ten", "full_name", "fullName", "name")
+NAME_FIELDS_EN = ("ho_va_ten_anh", "ten_tieng_anh", "full_name_en",
+                  "name_en", "english_name")
 DOB_FIELDS = ("ngay_sinh", "ngay_thang_nam_sinh", "dob",
               "date_of_birth", "birth_date")
 
@@ -80,6 +82,76 @@ def detect_name_from_data(d):
         if d.get(f):
             return str(d[f]).strip()
     return None
+
+
+def detect_name_en_from_data(d):
+    """Trích xuất tên tiếng Anh từ dữ liệu hồ sơ (nếu có)."""
+    if not d:
+        return None
+    for f in NAME_FIELDS_EN:
+        if d.get(f):
+            return str(d[f]).strip()
+    return None
+
+
+# ---------- Ánh xạ vai trò tác giả khoa học (VI ↔ EN) ----------
+# first author = tác giả chính / tác giả đầu
+# corresponding author = tác giả liên hệ
+# co-author / đồng tác giả = đồng tác giả
+AUTHOR_ROLE_VN_TO_EN = {
+    "tac gia chinh": "first author",
+    "tác giả chính": "first author",
+    "tac gia dau": "first author",
+    "tác giả đầu": "first author",
+    "first author": "first author",
+}
+AUTHOR_ROLE_EN_TO_VN = {v: k for k, v in AUTHOR_ROLE_VN_TO_EN.items()}
+
+AUTHOR_ROLE_CORRESPONDING_VN_TO_EN = {
+    "tac gia lien he": "corresponding author",
+    "tác giả liên hệ": "corresponding author",
+    "corresponding author": "corresponding author",
+}
+AUTHOR_ROLE_CORRESPONDING_EN_TO_VN = {v: k for k, v in AUTHOR_ROLE_CORRESPONDING_VN_TO_EN.items()}
+
+AUTHOR_ROLE_COAUTHOR_VN_TO_EN = {
+    "dong tac gia": "co-author",
+    "đồng tác giả": "co-author",
+    "co-author": "co-author",
+}
+AUTHOR_ROLE_COAUTHOR_EN_TO_VN = {v: k for k, v in AUTHOR_ROLE_COAUTHOR_VN_TO_EN.items()}
+
+
+def normalize_author_role(role: str) -> dict:
+    """
+    Chuẩn hóa vai trò tác giả từ chuỗi tự do thành dict boolean.
+    Trả về: {"tac_gia_chinh": bool, "tac_gia_lien_he": bool, "dong_tac_gia": bool, "vai_tro_viet_nam": str}
+    Mặc định ưu tiên tiếng Việt khi hiển thị.
+    """
+    if not role:
+        return {"tac_gia_chinh": False, "tac_gia_lien_he": False,
+                "dong_tac_gia": True, "vai_tro_viet_nam": "Đồng tác giả"}
+    r = str(role).strip()
+    rl = r.lower()
+    result = {"tac_gia_chinh": False, "tac_gia_lien_he": False,
+              "dong_tac_gia": False, "vai_tro_viet_nam": r}
+
+    if any(k in rl for k in AUTHOR_ROLE_VN_TO_EN):
+        result["tac_gia_chinh"] = True
+        result["vai_tro_viet_nam"] = "Tác giả chính"
+        return result
+    if any(k in rl for k in AUTHOR_ROLE_CORRESPONDING_VN_TO_EN):
+        result["tac_gia_lien_he"] = True
+        result["vai_tro_viet_nam"] = "Tác giả liên hệ"
+        return result
+    if any(k in rl for k in AUTHOR_ROLE_COAUTHOR_VN_TO_EN):
+        result["dong_tac_gia"] = True
+        result["vai_tro_viet_nam"] = "Đồng tác giả"
+        return result
+    # fallback: coi là đồng tác giả
+    result["dong_tac_gia"] = True
+    result["vai_tro_viet_nam"] = "Đồng tác giả"
+    return result
 
 
 def detect_dob_from_data(d):
