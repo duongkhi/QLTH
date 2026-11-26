@@ -1,4 +1,3 @@
-# ui/journal_admin_ui.py
 # Trang Quản lý sản phẩm khoa học (Admin)
 # Lưu trên Supabase bảng app_data dưới các key tương ứng.
 
@@ -28,6 +27,7 @@ from security import _strip_diacritics
 
 def render_journal_admin_page(ctx) -> None:
     """Trang Quản lý sản phẩm khoa học (chỉ Admin)."""
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     st.title("🎓 Quản lý sản phẩm khoa học")
     st.caption(
         "Quản lý các sản phẩm khoa học: công bố, văn bằng, sách, giải thưởng. "
@@ -49,6 +49,7 @@ def render_journal_admin_page(ctx) -> None:
         _render_book_tab(ctx)
     with tab_award:
         _render_award_tab(ctx)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def _render_publication_tab(ctx) -> None:

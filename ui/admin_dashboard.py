@@ -1,4 +1,3 @@
-# ui/admin_dashboard.py
 # Bảng điều khiển cho Admin khi vừa đăng nhập: hiển thị 4 tác vụ chính.
 import streamlit as st
 from config import UserContext
@@ -6,6 +5,7 @@ from config import UserContext
 
 def render_admin_dashboard(ctx: UserContext):
     """Trang tổng quan quản trị: hiện 4 nút tác vụ, bấm vào mới vào trang chi tiết."""
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     st.title("🛡️ Bảng điều khiển Quản trị")
     st.caption("Chào quản trị viên. Hãy chọn một tác vụ bên dưới để thực hiện.")
 
@@ -36,17 +36,20 @@ def render_admin_dashboard(ctx: UserContext):
         },
     ]
 
-    cols = st.columns(2)
-    for i, task in enumerate(tasks):
-        with cols[i % 2]:
-            with st.container(border=True):
-                st.markdown(f"### {task['icon']} {task['title']}")
-                st.caption(task["desc"])
-                if st.button(
-                    f"Vào {task['title']}",
-                    key=f"goto_{task['key']}",
-                    width='stretch',
-                    type="primary",
-                ):
-                    st.session_state.view_mode = task["key"]
-                    st.rerun()
+    # 2 cot tren PC, 1 cot tren mobile (thong qua CSS responsive-grid)
+    st.markdown('<div class="responsive-grid">', unsafe_allow_html=True)
+    for task in tasks:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown(f"### {task['icon']} {task['title']}")
+        st.caption(task["desc"])
+        if st.button(
+            f"Vào {task['title']}",
+            key=f"goto_{task['key']}",
+            width='stretch',
+            type="primary",
+        ):
+            st.session_state.view_mode = task["key"]
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)

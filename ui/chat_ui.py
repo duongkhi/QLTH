@@ -40,6 +40,7 @@ def _build_status_text(used: bool, status: str | None, p_used: str | None) -> st
 
 def _render_chat_fragment(username: str, role: str, allowed_profiles: list, user_record: dict):
     """Khung chat bên phải: bố cục 3 tầng tách biệt, không đè chữ."""
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     # TẦNG 1: TIÊU ĐỀ & NÚT XÓA
     c_head, c_clr = st.columns([3, 1.4], vertical_alignment="center")
     with c_head:
@@ -123,6 +124,7 @@ def _render_chat_fragment(username: str, role: str, allowed_profiles: list, user
 
     # ---------- XỬ LÝ KHI NGƯỜI DÙNG GỬI ----------
     if not submitted:
+        st.markdown('</div>', unsafe_allow_html=True)
         return
 
     hist = list(st.session_state[cache_key])
@@ -136,6 +138,7 @@ def _render_chat_fragment(username: str, role: str, allowed_profiles: list, user
 
     # Nếu không có text và không có file thì không gửi (bảo vệ lại)
     if not user_text and not file_bytes:
+        st.markdown('</div>', unsafe_allow_html=True)
         return
 
     # Nội dung hiển thị: gắn text với file thành một request
@@ -235,6 +238,8 @@ def _render_chat_fragment(username: str, role: str, allowed_profiles: list, user
     st.session_state["_chat_file_key"] = _current_key + 1
     # Không gọi st.rerun() rõ ràng: Streamlit sẽ tự rerun sau khi form submit,
     # giúp tránh reload toàn bộ trang nhiều lần và giữ tốc độ phản hồi nhanh.
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def render_chat_section(ctx: UserContext):

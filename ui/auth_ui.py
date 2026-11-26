@@ -1,7 +1,7 @@
 import streamlit as st
 
 from user_service import (
-    load_auth_config,  create_user,
+    load_auth_config, create_user,
     validate_username, compute_allowed_profiles,
 )
 from security import verify_password
@@ -11,6 +11,7 @@ from ui.local_session import save_local_session, clear_local_session
 
 
 def render_auth_screen():
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     st.title("🔒 Đăng Nhập Hệ Thống")
     st.write("Vui lòng xác thực tài khoản để làm việc.")
 
@@ -45,6 +46,7 @@ def render_auth_screen():
         _render_login(auth_config)
     else:
         _render_register()
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def _render_login(auth_config):

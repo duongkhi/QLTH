@@ -136,7 +136,7 @@ def linkify_profile_names(text: str, exclude_key: str = None) -> str:
         pk = name_map[name]
         if exclude_key and pk == exclude_key:
             continue
-        pat = re.compile(rf"(?<!\[)\b({re.escape(name)})\b(?!\]\()", re.IGNORECASE)
+        pat = re.compile(rf"(?<!\\)\b({re.escape(name)})\b(?!\]\()", re.IGNORECASE)
         result = pat.sub(
             rf'<a class="profile-link" href="?profile={pk}" target="_self">\1</a>',
             result,
@@ -158,8 +158,7 @@ def _render_avatar_html(data: dict, full_name: str) -> str:
     if b64:
         return (
             f'<img src="data:image/png;base64,{b64}" '
-            f'style="width:136px;height:136px;border-radius:50%;object-fit:cover;'
-            f'border:3px solid #3b82f6;box-shadow:0 4px 12px rgba(0,0,0,0.25);" />'
+            f'class="avatar" />'
         )
     parts = [p for p in str(full_name).strip().split() if p]
     if len(parts) >= 2:
@@ -169,12 +168,7 @@ def _render_avatar_html(data: dict, full_name: str) -> str:
     else:
         initials = "CV"
     return (
-        f'<div style="width:136px;height:136px;border-radius:50%;'
-        f'background:linear-gradient(135deg,#2563eb,#7c3aed);'
-        f'display:flex;align-items:center;justify-content:center;'
-        f'color:#fff;font-size:46px;font-weight:700;letter-spacing:1px;'
-        f'border:3px solid rgba(255,255,255,0.2);box-shadow:0 4px 12px rgba(0,0,0,0.25);">'
-        f'{initials}</div>'
+        f'<div class="avatar-initials">{initials}</div>'
     )
 
 
@@ -401,15 +395,14 @@ def render_public_profile(ctx: UserContext, target_profile_key: str):
     }
 
     if general_items:
-        cols = st.columns(2)
+        # 2 cot tren PC, 1 cot tren mobile (CSS field-row responsive)
         for idx, (k, v) in enumerate(general_items.items()):
             label = _format_label(k)
             linked_val = linkify_profile_names(_clean_text(v), exclude_key=target_profile_key)
-            with cols[idx % 2]:
-                st.markdown(
-                    f"<div style='font-size:1.08rem;margin-bottom:8px;'><strong>{label}:</strong> {linked_val}</div>",
-                    unsafe_allow_html=True,
-                )
+            st.markdown(
+                f"<div class='field-row'><strong>{label}:</strong> {linked_val}</div>",
+                unsafe_allow_html=True,
+            )
     else:
         st.caption("Không có thông tin bổ sung được công khai.")
 
@@ -418,15 +411,16 @@ def render_public_profile(ctx: UserContext, target_profile_key: str):
     # =========================================================
     # MỤC II: HƯỚNG NGHIÊN CỨU
     # =========================================================
-    col_ii_title, col_ii_ai = st.columns([4.5, 2.2], vertical_alignment="center")
-    with col_ii_title:
-        st.markdown("### II. Hướng nghiên cứu")
+    st.markdown("### II. Hướng nghiên cứu")
 
     can_trigger_ai = st.session_state.logged_in and (
         ctx.own_profile == target_profile_key or ctx.role in ("admin", "manager")
     )
     research_dir = _clean_text(data.get("huong_nghien_cuu")) or _clean_text(data.get("linh_vuc_nghien_cuu"))
 
+    col_ii_title, col_ii_ai = st.columns([4.5, 2.2], vertical_alignment="center")
+    with col_ii_title:
+        pass  # title already rendered above
     with col_ii_ai:
         if can_trigger_ai:
             btn_label = "🤖 AI tổng hợp (10 năm)" if not research_dir else "🔄 AI cập nhật hướng NC"
@@ -437,7 +431,7 @@ def render_public_profile(ctx: UserContext, target_profile_key: str):
 
     if research_dir:
         st.markdown(
-            f"<div style='background:rgba(59,130,246,0.08);border-left:4px solid #3b82f6;"
+            f"<div style='background:rgba(59,130,246,0.08);border-left:4px solid #3b82f6;'"
             f"padding:16px 20px;border-radius:6px;font-size:1.08rem;line-height:1.7;'>{research_dir}</div>",
             unsafe_allow_html=True,
         )
@@ -504,16 +498,17 @@ def render_public_profile(ctx: UserContext, target_profile_key: str):
                 vai_tro = _clean_text(dt.get("vai_tro"))
                 thoi_gian = _clean_text(dt.get("thoi_gian"))
                 trang_thai = _clean_text(dt.get("trang_thai"))
-                with st.container(border=True):
-                    st.markdown(f"**{idx}. {ten}**" + (f" (`{ma}`)" if ma else ""))
-                    sub_parts = [
-                        f"Vai trò: **{vai_tro}**" if vai_tro else "",
-                        f"Thời gian: {thoi_gian}" if thoi_gian else "",
-                        f"Trạng thái: {trang_thai}" if trang_thai else "",
-                    ]
-                    sub_line = " · ".join(p for p in sub_parts if p)
-                    if sub_line:
-                        st.caption(sub_line)
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                st.markdown(f"**{idx}. {ten}**" + (f" (`{ma}`)" if ma else ""))
+                sub_parts = [
+                    f"Vai trò: **{vai_tro}**" if vai_tro else "",
+                    f"Thời gian: {thoi_gian}" if thoi_gian else "",
+                    f"Trạng thái: {trang_thai}" if trang_thai else "",
+                ]
+                sub_line = " · ".join(p for p in sub_parts if p)
+                if sub_line:
+                    st.caption(sub_line)
+                st.markdown('</div>', unsafe_allow_html=True)
             else:
                 st.markdown(f"- {dt}")
 

@@ -5,8 +5,12 @@ env/
 ENV/
 temp_uploads/
 
-# File secrets
+# File secrets (KHÔNG commit)
 .streamlit/secrets.toml
+.streamlit/local_session.json
+
+# Cấu hình streamlit cố định (commit để đồng nhất giao diện mọi máy)
+!.streamlit/config.toml
 
 # Thư mục dữ liệu
 database/
@@ -24,7 +28,6 @@ build/
 dist/
 *.egg-info/
 
-.streamlit/
 scimagojr 2025.csv
 finance_example.xlsx
 *.json

@@ -38,8 +38,7 @@ def _render_avatar(username: str | None, role: str, profile_key: str | None = No
         st.markdown(
             f"<div style='text-align:center; margin-bottom:4px;'>"
             f"<img src='data:image/png;base64,{avatar_b64}' "
-            f"style='width:120px;height:120px;border-radius:50%;object-fit:cover;'"
-            f"border:3px solid #3b82f6;' /></div>",
+            f"class='avatar' /></div>",
             unsafe_allow_html=True,
         )
     else:
@@ -50,14 +49,9 @@ def _render_avatar(username: str | None, role: str, profile_key: str | None = No
             initials = parts[0][:2].upper()
         else:
             initials = "CV"
-        role_color = {"admin": "#1f2937", "manager": "#1d4ed8", "user": "#8b5cf6"}.get(role, "#8b5cf6")
         st.markdown(
             f"<div style='text-align:center; margin-bottom:4px;'>"
-            f"<div style='width:120px;height:120px;border-radius:50%;'"
-            f"background:linear-gradient(135deg,#2563eb,#7c3aed);'"
-            f"display:flex;align-items:center;justify-content:center;'"
-            f"color:#fff;font-size:42px;font-weight:700;'"
-            f"border:3px solid rgba(255,255,255,0.3);'>{initials}</div></div>",
+            f"<div class='avatar-initials'>{initials}</div></div>",
             unsafe_allow_html=True,
         )
 
@@ -123,7 +117,8 @@ def render_sidebar(ctx: UserContext):
         if ctx.role == "admin":
             admin_buttons.insert(0, ("🛡️ Quản trị người dùng", "user_admin"))
 
-        # Hiển thị các nút theo 2 cột một hàng
+        # Hiển thị các nút theo 2 cột một hàng (trên mobile stack dọc qua CSS)
+        st.markdown('<div class="mobile-stack">', unsafe_allow_html=True)
         for i in range(0, len(admin_buttons), 2):
             c1, c2 = st.columns(2)
             label1, mode1 = admin_buttons[i]
@@ -141,6 +136,7 @@ def render_sidebar(ctx: UserContext):
                         st.session_state.pop("_run_skill_name", None)
                         st.session_state.pop("_run_skill_description", None)
                         st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("---")
 

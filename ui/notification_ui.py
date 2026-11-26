@@ -1,4 +1,3 @@
-# ui/notification_ui.py
 # Trang Gửi thông báo (khung cơ bản, có thể bổ sung logic gửi thực tế sau).
 import streamlit as st
 from config import UserContext
@@ -6,6 +5,7 @@ from config import UserContext
 
 def render_notification_page(ctx: UserContext):
     """Gửi thông báo đến người dùng trong hệ thống."""
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     st.title("📢 Gửi thông báo")
     st.caption("Gửi thông báo đến người dùng trong hệ thống.")
 
@@ -26,3 +26,4 @@ def render_notification_page(ctx: UserContext):
             st.error("Vui lòng nhập nội dung thông báo.")
         else:
             st.success("✅ Đã gửi thông báo (chức năng đang phát triển).")
+    st.markdown('</div>', unsafe_allow_html=True)

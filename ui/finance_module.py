@@ -1,4 +1,4 @@
-#finance_module.py
+# ui/finance_module.py
 import streamlit as st
 import pandas as pd
 import time
@@ -212,6 +212,7 @@ def _edit_project_dialog(pid: str, project: dict):
 
 
 def render_finance_module(ctx: UserContext):
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     st.title("💰 Quản lý tài chính")
     st.caption("Tổng hợp giải ngân · Quản lý đề tài · Sổ chứng từ · Trợ lý AI")
 
@@ -297,16 +298,17 @@ def render_finance_module(ctx: UserContext):
             for pid, p in filtered.items():
                 d = disbursements.get(pid, {})
                 m = get_project_metrics(pid, p, d)
-                with st.container(border=True):
-                    c1, c2, c3, c4, c5, c6 = st.columns([1, 2.6, 1.4, 1.1, 1.1, 0.9])
-                    c1.markdown(f"**{pid}**")
-                    c2.markdown(p.get("name", ""))
-                    c3.markdown(p.get("pi", ""))
-                    c4.markdown(format_currency(m["actual_budget"]))
-                    c5.markdown(format_currency(m["current_cum"]))
-                    if c6.button("🔍 Xem", key=f"finance_select_{pid}"):
-                        st.session_state["finance_selected_pid"] = pid
-                        st.rerun()
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                c1, c2, c3, c4, c5, c6 = st.columns([1, 2.6, 1.4, 1.1, 1.1, 0.9])
+                c1.markdown(f"**{pid}**")
+                c2.markdown(p.get("name", ""))
+                c3.markdown(p.get("pi", ""))
+                c4.markdown(format_currency(m["actual_budget"]))
+                c5.markdown(format_currency(m["current_cum"]))
+                if c6.button("🔍 Xem", key=f"finance_select_{pid}"):
+                    st.session_state["finance_selected_pid"] = pid
+                    st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
 
             detail_pid = None
             selected = st.session_state.get("finance_selected_pid")
@@ -498,26 +500,27 @@ def render_finance_module(ctx: UserContext):
                     st.info("Không tìm thấy đề tài nào khớp với từ khóa tìm kiếm.")
                 else:
                     for pid, p in filtered_projects.items():
-                        with st.container(border=True):
-                            c1, c2, c3 = st.columns([5, 0.6, 0.6])
-                            with c1:
-                                st.markdown(f"**{pid}** — {p.get('name', '')}")
-                                st.caption(
-                                    f"Chủ nhiệm: {p.get('pi', '')} · "
-                                    f"Nhóm: {p.get('group', '')} · "
-                                    f"KP sử dụng: {format_currency(p.get('actual_budget', 0))}"
-                                )
-                            with c2:
-                                if st.button("✏️", key=f"edit_{pid}",
-                                             help="Sửa đề tài", width='stretch'):
-                                    st.session_state["editing_pid"] = pid
-                                    st.rerun()
-                            with c3:
-                                if st.button("🗑️", key=f"del_{pid}",
-                                             help="Xóa đề tài", width='stretch'):
-                                    delete_single_project(pid)
-                                    st.session_state["_project_flash"] = f"Đã xóa `{pid}`."
-                                    st.rerun()
+                        st.markdown('<div class="card">', unsafe_allow_html=True)
+                        c1, c2, c3 = st.columns([5, 0.6, 0.6])
+                        with c1:
+                            st.markdown(f"**{pid}** — {p.get('name', '')}")
+                            st.caption(
+                                f"Chủ nhiệm: {p.get('pi', '')} · "
+                                f"Nhóm: {p.get('group', '')} · "
+                                f"KP sử dụng: {format_currency(p.get('actual_budget', 0))}"
+                            )
+                        with c2:
+                            if st.button("✏️", key=f"edit_{pid}",
+                                         help="Sửa đề tài", width='stretch'):
+                                st.session_state["editing_pid"] = pid
+                                st.rerun()
+                        with c3:
+                            if st.button("🗑️", key=f"del_{pid}",
+                                         help="Xóa đề tài", width='stretch'):
+                                delete_single_project(pid)
+                                st.session_state["_project_flash"] = f"Đã xóa `{pid}`."
+                                st.rerun()
+                        st.markdown('</div>', unsafe_allow_html=True)
 
         editing_pid = st.session_state.get("editing_pid")
         if editing_pid:
@@ -575,24 +578,25 @@ def render_finance_module(ctx: UserContext):
                 df_tx = pd.DataFrame(transactions)
                 df_tx = df_tx.sort_values(by="date", ascending=False)
                 for _, row in df_tx.iterrows():
-                    with st.container(border=True):
-                        c1, c2 = st.columns([5, 1])
-                        with c1:
-                            st.markdown(
-                                f"**{row.get('voucher_no', '')}** | "
-                                f"{row.get('date', '')} | "
-                                f"{format_currency(row.get('amount', 0))} | "
-                                f"{row.get('content', '')}"
-                            )
-                            st.caption(
-                                f"Đề tài: {row.get('project_id', '')} | "
-                                f"Người ký: {row.get('signer', '')} | "
-                                f"Người chi: {row.get('payer', '')}"
-                            )
-                        with c2:
-                            if st.button("🗑️", key=f"del_tx_{row['id']}"):
-                                delete_transaction(row["id"])
-                                st.rerun()
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    c1, c2 = st.columns([5, 1])
+                    with c1:
+                        st.markdown(
+                            f"**{row.get('voucher_no', '')}** | "
+                            f"{row.get('date', '')} | "
+                            f"{format_currency(row.get('amount', 0))} | "
+                            f"{row.get('content', '')}"
+                        )
+                        st.caption(
+                            f"Đề tài: {row.get('project_id', '')} | "
+                            f"Người ký: {row.get('signer', '')} | "
+                            f"Người chi: {row.get('payer', '')}"
+                        )
+                    with c2:
+                        if st.button("🗑️", key=f"del_tx_{row['id']}"):
+                            delete_transaction(row["id"])
+                            st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
 
     # =================================================================
     # TAB 4: NHẬP LIỆU EXCEL (chỉ admin/manager)
@@ -622,3 +626,5 @@ def render_finance_module(ctx: UserContext):
                             st.rerun()
                         else:
                             st.error(msg)
+
+    st.markdown('</div>', unsafe_allow_html=True)

@@ -19,10 +19,10 @@ from skill_manager import (
 from user_service import load_auth_config
 
 
-@st.fragment
 def _render_skill_creation(username: str) -> None:
     """Form cho phép user nhập yêu cầu tạo Skill mới bằng tiếng Việt, AI sinh mã, rồi lưu.
     Toàn bộ nằm trong fragment → chỉ rerun phần này khi tạo/lưu Skill, không load lại trang khác."""
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     st.markdown("### 🛠️ Tạo Skill kế toán mới")
     st.caption(
         "Nhập yêu cầu nghiệp vụ bằng tiếng Việt. Hệ thống sẽ gọi Gemini để tự động sinh tên Skill, mô tả và mã Python, rồi lưu vào kho kỹ năng."
@@ -91,12 +91,13 @@ def _render_skill_creation(username: str) -> None:
                     st.rerun()
                 else:
                     st.error("Không lưu được Skill. Tên có thể đã tồn tại hoặc không hợp lệ.")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
-@st.fragment
 def _render_skill_admin(username: str) -> None:
     """Trang quản trị Skill: chỉ Admin xem được. Liệt kê, xem code, xóa, quản lý allowed_users.
     Toàn bộ nằm trong fragment → khi Admin tích chọn checkbox / bấm Lưu quyền, chỉ rerun phần này."""
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     st.markdown("### 🛡️ Quản trị Skill (Admin)")
     st.caption(
         "Liệt kê toàn bộ Skill do mọi người dùng đã tạo. Bạn có thể xem mô tả, đọc mã Python, xóa Skill và cấp/Thu hồi quyền dùng cho các tài khoản khác."
@@ -113,6 +114,7 @@ def _render_skill_admin(username: str) -> None:
     skills = list_skills()
     if not skills:
         st.info("Chưa có Skill nào trong kho.")
+        st.markdown('</div>', unsafe_allow_html=True)
         return
 
     st.markdown(f"#### 📋 Danh sách Skill ({len(skills)})")
@@ -162,6 +164,7 @@ def _render_skill_admin(username: str) -> None:
                         delete_skill(name)
                         st.success(f"✅ Đã xóa Skill '{name}'.")
                         st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def render_skill_page(ctx) -> None:

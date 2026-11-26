@@ -82,8 +82,6 @@ def render_user_admin_page(ctx: UserContext):
         """Hiển thị tên hiển thị nếu có, ngược lại hiển thị key gốc."""
         return catalog_display_names.get(profile_key, profile_key)
 
-
-
     # --- Tạo user mới ---
     with st.expander("➕ Tạo tài khoản mới", expanded=False):
         # Selectbox duy nhất: gõ tìm kiếm bên trong dropdown để lọc hồ sơ
@@ -196,155 +194,155 @@ def render_user_admin_page(ctx: UserContext):
             or uname
         )
 
-        with st.container(border=True):
-            # --- Hàng đầu: avatar + tên link sát nhau ---
-            role_icon_map = {"admin": "🛡️", "manager": "💼", "user": "👤"}
-            role_color_map = {"admin": "#1f2937", "manager": "#1d4ed8", "user": "#8b5cf6"}
-            user_role = urec.get("role", "user")
-            default_icon = role_icon_map.get(user_role, "👤")
-            default_color = role_color_map.get(user_role, "#8b5cf6")
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        # --- Hàng đầu: avatar + tên link sát nhau ---
+        role_icon_map = {"admin": "🛡️", "manager": "💼", "user": "👤"}
+        role_color_map = {"admin": "#1f2937", "manager": "#1d4ed8", "user": "#8b5cf6"}
+        user_role = urec.get("role", "user")
+        default_icon = role_icon_map.get(user_role, "👤")
+        default_color = role_color_map.get(user_role, "#8b5cf6")
 
-            c_av, c_name = st.columns([0.9, 4.2], vertical_alignment="center")
-            with c_av:
-                if avatar_b64:
-                    st.markdown(
-                        f'<img src="data:image/png;base64,{avatar_b64}" '
-                        'style="width:72px;height:72px;border-radius:50%;object-fit:cover;" />',
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    st.markdown(
-                        f'<div style="width:72px;height:72px;border-radius:50%;'
-                        f'background:#f3f4f6;display:flex;align-items:center;justify-content:center;'
-                        f'font-size:34px;color:{default_color};">{default_icon}</div>',
-                        unsafe_allow_html=True,
-                    )
-            with c_name:
-                if st.button(
-                    f"{display_name}",
-                    key=f"goto_profile_{uname}",
-                    help=f"Xem trang công khai của {display_name}",
-                ):
-                    st.session_state.viewing_profile = profile_key
-                    st.session_state.view_mode = "public_profile"
-                    st.rerun()
-                st.caption(f"@{uname} · {user_role.upper()}")
+        c_av, c_name = st.columns([0.9, 4.2], vertical_alignment="center")
+        with c_av:
+            if avatar_b64:
+                st.markdown(
+                    f'<img src="data:image/png;base64,{avatar_b64}" '
+                    'style="width:72px;height:72px;border-radius:50%;object-fit:cover;" />',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f'<div style="width:72px;height:72px;border-radius:50%;'
+                    f'background:#f3f4f6;display:flex;align-items:center;justify-content:center;'
+                    f'font-size:34px;color:{default_color};">{default_icon}</div>',
+                    unsafe_allow_html=True,
+                )
+        with c_name:
+            if st.button(
+                f"{display_name}",
+                key=f"goto_profile_{uname}",
+                help=f"Xem trang công khai của {display_name}",
+            ):
+                st.session_state.viewing_profile = profile_key
+                st.session_state.view_mode = "public_profile"
+                st.rerun()
+            st.caption(f"@{uname} · {user_role.upper()}")
 
-            st.markdown("---")
+        st.markdown("---")
 
-            c1, c2, c3 = st.columns([1.4, 1.8, 3])
+        c1, c2, c3 = st.columns([1.4, 1.8, 3])
 
-            cur_role = urec.get("role", "user")
-            roles = ["user", "manager", "admin"]
-            new_role = c1.selectbox(
-                "Vai trò:",
-                options=roles,
-                index=roles.index(cur_role) if cur_role in roles else 0,
-                key=f"adm_role_{uname}",
+        cur_role = urec.get("role", "user")
+        roles = ["user", "manager", "admin"]
+        new_role = c1.selectbox(
+            "Vai trò:",
+            options=roles,
+            index=roles.index(cur_role) if cur_role in roles else 0,
+            key=f"adm_role_{uname}",
+        )
+
+        cur_prof = urec.get("own_profile") or ""
+        with c2:
+            # Selectbox duy nhất: gõ tìm kiếm bên trong dropdown để lọc hồ sơ
+            prof_opts_edit = ["(Không gán)"] + all_profiles
+            default_index = 0 if not cur_prof or cur_prof not in prof_opts_edit else prof_opts_edit.index(cur_prof)
+            selected_prof_edit = st.selectbox(
+                "Chọn hồ sơ (gõ tên để tìm):",
+                options=prof_opts_edit,
+                index=default_index,
+                key=f"edit_prof_select_{uname}",
+                format_func=lambda k: "(Không gán)" if k == "(Không gán)" else _prof_label(k),
             )
 
-            cur_prof = urec.get("own_profile") or ""
-            with c2:
-                # Selectbox duy nhất: gõ tìm kiếm bên trong dropdown để lọc hồ sơ
-                prof_opts_edit = ["(Không gán)"] + all_profiles
-                default_index = 0 if not cur_prof or cur_prof not in prof_opts_edit else prof_opts_edit.index(cur_prof)
-                selected_prof_edit = st.selectbox(
-                    "Chọn hồ sơ (gõ tên để tìm):",
-                    options=prof_opts_edit,
-                    index=default_index,
-                    key=f"edit_prof_select_{uname}",
-                    format_func=lambda k: "(Không gán)" if k == "(Không gán)" else _prof_label(k),
-                )
+            new_prof = selected_prof_edit if selected_prof_edit != "(Không gán)" else ""
 
-                new_prof = selected_prof_edit if selected_prof_edit != "(Không gán)" else ""
+            # Hiển thị tên hồ sơ đã gán (nếu có)
+            if new_prof:
+                st.caption(f"✅ Đã gán: {new_prof}")
+            else:
+                st.caption("⚪ Chưa gán hồ sơ")
 
-                # Hiển thị tên hồ sơ đã gán (nếu có)
-                if new_prof:
-                    st.caption(f"✅ Đã gán: {new_prof}")
-                else:
-                    st.caption("⚪ Chưa gán hồ sơ")
+        is_admin_role = (new_role == "admin")
+        cur_tools = list(SYSTEM_TOOLS.keys()) if is_admin_role else [
+            t for t in urec.get("allowed_tools", []) if t in SYSTEM_TOOLS
+        ]
 
-            is_admin_role = (new_role == "admin")
-            cur_tools = list(SYSTEM_TOOLS.keys()) if is_admin_role else [
-                t for t in urec.get("allowed_tools", []) if t in SYSTEM_TOOLS
-            ]
+        # --- Hiển thị quyền quản trị (màu xanh) + nút Sửa quyền mở popover ---
+        with c3:
+            st.markdown("**Quyền quản trị:**")
+            granted = [t for t in cur_tools if t in SYSTEM_TOOLS]
+            if granted:
+                n_col = 3
+                rows = (len(granted) + n_col - 1) // n_col
+                for r in range(rows):
+                    cols = st.columns(n_col)
+                    for c in range(n_col):
+                        idx = r * n_col + c
+                        if idx >= len(granted):
+                            break
+                        tool_key = granted[idx]
+                        tool_label = SYSTEM_TOOLS[tool_key]
+                        with cols[c]:
+                            st.button(
+                                tool_label,
+                                key=f"view_tool_{uname}_{tool_key}",
+                                type="primary",
+                                disabled=True,
+                                width='stretch',
+                                help=tool_label,
+                            )
+            else:
+                st.caption("(Chưa có tool nào)")
+            st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
+            with st.popover("✏️ Sửa quyền", width='stretch'):
+                st.markdown(f"**Chỉnh sửa quyền quản trị cho {display_name} (@{uname})**")
+                st.caption("Màu xanh = đang cấp quyền · Màu trắng = chưa cấp quyền · Nhấn vào công cụ để Bật/Tắt")
 
-            # --- Hiển thị quyền quản trị (màu xanh) + nút Sửa quyền mở popover ---
-            with c3:
-                st.markdown("**Quyền quản trị:**")
-                granted = [t for t in cur_tools if t in SYSTEM_TOOLS]
-                if granted:
-                    n_col = 3
-                    rows = (len(granted) + n_col - 1) // n_col
-                    for r in range(rows):
-                        cols = st.columns(n_col)
-                        for c in range(n_col):
-                            idx = r * n_col + c
-                            if idx >= len(granted):
-                                break
-                            tool_key = granted[idx]
-                            tool_label = SYSTEM_TOOLS[tool_key]
-                            with cols[c]:
-                                st.button(
-                                    tool_label,
-                                    key=f"view_tool_{uname}_{tool_key}",
-                                    type="primary",
-                                    disabled=True,
-                                    width='stretch',
-                                    help=tool_label,
-                                )
-                else:
-                    st.caption("(Chưa có tool nào)")
-                st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
-                with st.popover("✏️ Sửa quyền", width='stretch'):
-                    st.markdown(f"**Chỉnh sửa quyền quản trị cho {display_name} (@{uname})**")
-                    st.caption("Màu xanh = đang cấp quyền · Màu trắng = chưa cấp quyền · Nhấn vào công cụ để Bật/Tắt")
+                temp_key = f"temp_tools_{uname}"
+                if temp_key not in st.session_state:
+                    st.session_state[temp_key] = list(cur_tools)
 
-                    temp_key = f"temp_tools_{uname}"
-                    if temp_key not in st.session_state:
-                        st.session_state[temp_key] = list(cur_tools)
-
-                    tool_items = list(SYSTEM_TOOLS.items())
-                    n_col = 3
-                    rows = (len(tool_items) + n_col - 1) // n_col
-                    for r in range(rows):
-                        cols = st.columns(n_col)
-                        for c in range(n_col):
-                            idx = r * n_col + c
-                            if idx >= len(tool_items):
-                                break
-                            tool_key, tool_label = tool_items[idx]
-                            with cols[c]:
-                                is_selected = tool_key in st.session_state[temp_key]
-                                btn_type = "primary" if is_selected else "secondary"
-                                if st.button(
-                                    tool_label,
-                                    key=f"tool_toggle_{uname}_{tool_key}",
-                                    type=btn_type,
-                                    width='stretch',
-                                    help=f"Bật/tắt {tool_label}",
-                                ):
-                                    if is_selected:
-                                        st.session_state[temp_key].remove(tool_key)
-                                    else:
-                                        st.session_state[temp_key].append(tool_key)
-                                    st.rerun()
-
-                    st.markdown("---")
-                    s1, s2 = st.columns(2)
-                    with s1:
-                        if st.button("💾 Lưu công cụ", key=f"save_tools_{uname}", type="primary", width='stretch'):
-                            tools_to_save = list(SYSTEM_TOOLS.keys()) if is_admin_role else st.session_state[temp_key]
-                            prof_to_save = None if new_prof == "(Không gán)" else new_prof
-                            ok, msg = admin_update_user(uname, new_role, prof_to_save, tools_to_save)
-                            if ok:
-                                st.success(msg)
+                tool_items = list(SYSTEM_TOOLS.items())
+                n_col = 3
+                rows = (len(tool_items) + n_col - 1) // n_col
+                for r in range(rows):
+                    cols = st.columns(n_col)
+                    for c in range(n_col):
+                        idx = r * n_col + c
+                        if idx >= len(tool_items):
+                            break
+                        tool_key, tool_label = tool_items[idx]
+                        with cols[c]:
+                            is_selected = tool_key in st.session_state[temp_key]
+                            btn_type = "primary" if is_selected else "secondary"
+                            if st.button(
+                                tool_label,
+                                key=f"tool_toggle_{uname}_{tool_key}",
+                                type=btn_type,
+                                width='stretch',
+                                help=f"Bật/tắt {tool_label}",
+                            ):
+                                if is_selected:
+                                    st.session_state[temp_key].remove(tool_key)
+                                else:
+                                    st.session_state[temp_key].append(tool_key)
                                 st.rerun()
-                            else:
-                                st.error(msg)
-                    with s2:
-                        if st.button("❌ Hủy", key=f"cancel_tools_{uname}", width='stretch'):
-                            pass
+
+                st.markdown("---")
+                s1, s2 = st.columns(2)
+                with s1:
+                    if st.button("💾 Lưu công cụ", key=f"save_tools_{uname}", type="primary", width='stretch'):
+                        tools_to_save = list(SYSTEM_TOOLS.keys()) if is_admin_role else st.session_state[temp_key]
+                        prof_to_save = None if new_prof == "(Không gán)" else new_prof
+                        ok, msg = admin_update_user(uname, new_role, prof_to_save, tools_to_save)
+                        if ok:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                with s2:
+                    if st.button("❌ Hủy", key=f"cancel_tools_{uname}", width='stretch'):
+                        pass
 
             b1, b2, b3 = st.columns([2, 2, 1])
             with b1:
@@ -374,8 +372,6 @@ def render_user_admin_page(ctx: UserContext):
                             st.rerun()
                         else:
                             st.error(msg)
-
-
 
             # --- Expander chỉnh sửa thông tin hồ sơ trực tiếp (chỉ Admin) ---
             with st.expander(f"✏️ Chỉnh sửa thông tin hồ sơ của {uname}", expanded=False):
@@ -440,3 +436,4 @@ def render_user_admin_page(ctx: UserContext):
                             st.rerun()
                         else:
                             st.error("❌ Không lưu được thông tin hồ sơ.")
+        st.markdown('</div>', unsafe_allow_html=True)
