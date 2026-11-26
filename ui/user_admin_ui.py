@@ -8,7 +8,7 @@ from user_service import (
 from storage import get_all_existing_profiles, load_json_from_db, save_json_to_db, load_user_profile, save_user_profile
 from security import hash_password
 from profile_service import sync_publications_index
-from user_service import tra_cuu_luong, lay_ds_key_co_luong
+from user_service import lay_ds_key_co_luong
 
 
 def render_user_admin_page(ctx: UserContext):

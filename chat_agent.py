@@ -140,7 +140,7 @@ def _build_system_prompt(role, own_profile, viewing_profile, allowed_profiles_co
     tool_list = """
 Các công cụ có sẵn (bạn YÊU CẦU gọi bằng cách trả về JSON action):
 - get_profile_data: lấy dữ liệu hồ sơ một người. Tham số: {"profile_name": "..."}
-- get_salary: lấy thông tin lương của một người. Tham số: {"profile_name": "..."}
+- get_salary: lấy thông tin lương của một người. Tham số: {"profile_name": "...", "fields": [...], "preset": "all|tao bang luong|bien dong luong|lan len luong gan nhat"}
 - list_accessible_profiles: liệt kê hồ sơ user được phép. Tham số: {}
 - search_profiles: tìm hồ sơ theo điều kiện. Tham số: {"field": "...", "operator": "eq|like|...", "value": "..."}
 - query_finance_data: tra cứu đề tài/kinh phí. Tham số: {"field": "...", "operator": "...", "value": "...", "action": "list|sum|count"}
@@ -163,7 +163,7 @@ Các công cụ có sẵn (bạn YÊU CẦU gọi bằng cách trả về JSON a
         f"1. Chào hỏi/cảm ơn → trả lời trực tiếp, không gọi công cụ.\n"
         f"2. Hỏi về một người (\"X là ai\", \"thông tin về X\", \"hồ sơ X\") → gọi get_profile_data với profile_name là tên người đó. Nếu không tìm thấy hồ sơ, có thể gọi query_finance_data để tìm đề tài/tài chính của người đó, rồi trả lời ghép.\n"
         f"3. Hỏi về đề tài / chủ nhiệm đề tài / kinh phí → chỉ gọi query_finance_data, không gọi get_profile_data.\n"
-        f"4. Hỏi về lương/thu nhập của một người → gọi get_salary với profile_name là tên người đó. AI sẽ tự tìm theo tên hiển thị hoặc username.\n"
+        f"4. Hỏi về lương/thu nhập của một người → gọi get_salary với profile_name là tên người đó. Có thể kèm fields (danh sách trường) hoặc preset (\"all\", \"tao bang luong\", \"bien dong luong\", \"lan len luong gan nhat\"). AI sẽ tự tìm theo tên hiển thị hoặc username.\n"
         f"5. Hỏi danh sách đề tài → gọi query_finance_data (action='list').\n"
         f"6. Hỏi quy định → gọi search_knowledge.\n"
         f"5. Trả về CHỈ duy nhất một đối tượng JSON:\n"
@@ -368,7 +368,9 @@ def _handle_retrieve(action: str, args: dict, ctx_info: dict,
             result = {"error": "Chưa tên người cần tra cứu lương."}
             status = "error"
         else:
-            result = tra_cuu_luong(target_name, username, role, user_record)
+            fields = args.get("fields", None)
+            preset = args.get("preset", None)
+            result = tra_cuu_luong(target_name, username, role, user_record, fields=fields, preset=preset)
             if "error" in result:
                 status = "error"
             else:
