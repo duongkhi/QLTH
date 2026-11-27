@@ -37,6 +37,7 @@ DEFAULTS = {
     "finance_chat": [],
     "show_change_pw": False,
     "show_manage_users": False,
+    "dark_mode": False,
     "auth_mode": "login",
     "pending_toast": None,
     "pw_change_success": False,

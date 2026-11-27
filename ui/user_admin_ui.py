@@ -4,11 +4,11 @@ from config import UserContext, SYSTEM_TOOLS
 from user_service import (
     load_auth_config, admin_create_user, admin_update_user,
     admin_reset_password, admin_delete_user, validate_username,
+    lay_ds_key_co_luong, get_username_from_salary_key,
 )
 from storage import get_all_existing_profiles, load_json_from_db, save_json_to_db, load_user_profile, save_user_profile
 from security import hash_password
 from profile_service import sync_publications_index
-from user_service import lay_ds_key_co_luong
 
 
 def render_user_admin_page(ctx: UserContext):
@@ -230,7 +230,7 @@ def render_user_admin_page(ctx: UserContext):
 
         st.markdown("---")
 
-        c1, c2, c3 = st.columns([1.4, 1.8, 3])
+        c1, c2, c3 = st.columns([1.4, 3, 3])
 
         cur_role = urec.get("role", "user")
         roles = ["user", "manager", "admin"]
@@ -247,7 +247,7 @@ def render_user_admin_page(ctx: UserContext):
             prof_opts_edit = ["(Không gán)"] + all_profiles
             default_index = 0 if not cur_prof or cur_prof not in prof_opts_edit else prof_opts_edit.index(cur_prof)
             selected_prof_edit = st.selectbox(
-                "Chọn hồ sơ (gõ tên để tìm):",
+                "Chọn hồ sơ cá nhân:",
                 options=prof_opts_edit,
                 index=default_index,
                 key=f"edit_prof_select_{uname}",
@@ -260,7 +260,44 @@ def render_user_admin_page(ctx: UserContext):
             if new_prof:
                 st.caption(f"✅ Đã gán: {new_prof}")
             else:
-                st.caption("⚪ Chưa gán hồ sơ")
+                st.caption("⚪ Chưa gán hồ sơ cá nhân")
+
+        # Hàng mới: Chọn hồ sơ thuế (lấy từ salary_profiles, không phải user profile)
+        cur_tax_prof = urec.get("tax_profile") or ""
+        with c3:
+            # Lấy danh sách hồ sơ từ bảng lương (salary_profiles)
+            salary_keys = lay_ds_key_co_luong()
+            salary_data = load_json_from_db("salary_profiles") or {}
+            tax_opts_edit = ["(Không gán)"]
+            tax_label_map = {}
+            for sk in salary_keys:
+                sp = salary_data.get(sk, {})
+                ten = sp.get("ho_va_ten", sk)
+                label = f"{ten} (@{sk})"
+                tax_opts_edit.append(label)
+                tax_label_map[label] = sk
+
+            default_tax_index = 0
+            if cur_tax_prof:
+                for lbl, sk in tax_label_map.items():
+                    if sk == cur_tax_prof:
+                        default_tax_index = tax_opts_edit.index(lbl)
+                        break
+
+            selected_tax_label = st.selectbox(
+                "Chọn hồ sơ thuế:",
+                options=tax_opts_edit,
+                index=default_tax_index,
+                key=f"edit_tax_select_{uname}",
+            )
+
+            new_tax_prof = tax_label_map.get(selected_tax_label) if selected_tax_label != "(Không gán)" else ""
+
+            # Hiển thị tên hồ sơ thuế đã gán (nếu có)
+            if new_tax_prof:
+                st.caption(f"✅ Đã gán: {new_tax_prof}")
+            else:
+                st.caption("⚪ Chưa gán hồ sơ thuế")
 
         is_admin_role = (new_role == "admin")
         cur_tools = list(SYSTEM_TOOLS.keys()) if is_admin_role else [
@@ -268,7 +305,7 @@ def render_user_admin_page(ctx: UserContext):
         ]
 
         # --- Hiển thị quyền quản trị (màu xanh) + nút Sửa quyền mở popover ---
-        with c3:
+        with st.container():
             st.markdown("**Quyền quản trị:**")
             granted = [t for t in cur_tools if t in SYSTEM_TOOLS]
             if granted:
@@ -334,22 +371,25 @@ def render_user_admin_page(ctx: UserContext):
                     if st.button("💾 Lưu công cụ", key=f"save_tools_{uname}", type="primary", width='stretch'):
                         tools_to_save = list(SYSTEM_TOOLS.keys()) if is_admin_role else st.session_state[temp_key]
                         prof_to_save = None if new_prof == "(Không gán)" else new_prof
-                        ok, msg = admin_update_user(uname, new_role, prof_to_save, tools_to_save)
+                        # Chuuyen key salary_profiles (co the la fullname) thanh username truoc khi luu
+                        tax_username = get_username_from_salary_key(new_tax_prof) if new_tax_prof else None
+                        ok, msg = admin_update_user(uname, new_role, prof_to_save, tools_to_save, None, tax_username)
                         if ok:
                             st.success(msg)
                             st.rerun()
                         else:
                             st.error(msg)
-                with s2:
-                    if st.button("❌ Hủy", key=f"cancel_tools_{uname}", width='stretch'):
-                        pass
+                    with s2:
+                        if st.button("❌ Hủy", key=f"cancel_tools_{uname}", width='stretch'):
+                            pass
 
             b1, b2, b3 = st.columns([2, 2, 1])
             with b1:
                 if st.button("💾 Lưu phân quyền", key=f"adm_save_{uname}", type="primary", width='stretch'):
                     prof_to_save = None if new_prof == "(Không gán)" else new_prof
                     tools_to_save = list(SYSTEM_TOOLS.keys()) if is_admin_role else cur_tools
-                    ok, msg = admin_update_user(uname, new_role, prof_to_save, tools_to_save)
+                    tax_username = get_username_from_salary_key(new_tax_prof) if new_tax_prof else None
+                    ok, msg = admin_update_user(uname, new_role, prof_to_save, tools_to_save, None, tax_username)
                     if ok:
                         st.success(msg)
                         st.rerun()

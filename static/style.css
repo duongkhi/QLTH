@@ -1,183 +1,442 @@
-/* ================= DESIGN SYSTEM VARIABLES ================= */
+/* ==========================================================================
+   DESIGN SYSTEM — HỆ THỐNG HỒ SƠ & AI AGENT
+   - Khóa theme cố định, không bị thay đổi tùy máy khách
+   - Biến màu cho light & dark mode
+   - Typography, spacing, radius, shadow chuẩn hóa
+   ========================================================================== */
+
+/* ---------- Theme variables ---------- */
 :root {
-    --primary: #1a73e8;
-    --primary-hover: #1557b0;
-    --primary-light: #e8f0fe;
-    --secondary: #6c757d;
-    --success: #198754;
-    --warning: #ffc107;
-    --danger: #dc3545;
-    --info: #0dcaf0;
-    --bg-body: #ffffff;
-    --bg-secondary: #f8f9fa;
-    --bg-card: #ffffff;
-    --text-main: #212529;
-    --text-muted: #6c757d;
-    --text-inverse: #ffffff;
-    --border: #dee2e6;
-    --border-dark: #adb5bd;
-    --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
-    --shadow: 0 2px 8px rgba(0,0,0,0.08);
-    --shadow-lg: 0 4px 16px rgba(0,0,0,0.12);
+    /* Light mode (mặc định) */
+    --color-primary: #1a73e8;
+    --color-primary-hover: #1557b0;
+    --color-primary-light: #e8f0fe;
+    --color-primary-dark: #0d47a1;
+
+    --color-secondary: #6c757d;
+    --color-success: #198754;
+    --color-warning: #ffc107;
+    --color-danger: #dc3545;
+    --color-info: #0dcaf0;
+
+    --color-bg-body: #ffffff;
+    --color-bg-secondary: #f8f9fa;
+    --color-bg-card: #ffffff;
+    --color-bg-hover: #f1f3f5;
+
+    --color-text-main: #212529;
+    --color-text-muted: #6c757d;
+    --color-text-light: #adb5bd;
+    --color-text-inverse: #ffffff;
+
+    --color-border: #dee2e6;
+    --color-border-dark: #adb5bd;
+    --color-border-focus: #1a73e8;
+
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+    --shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.12);
+    --shadow-xl: 0 8px 24px rgba(0, 0, 0, 0.16);
+
     --radius: 8px;
     --radius-lg: 12px;
-    --font-size-base: 16px;
-    --font-size-sm: 14px;
+    --radius-pill: 9999px;
+
+    --font-size-base: 15px;
+    --font-size-sm: 13px;
     --font-size-xs: 12px;
-    --font-size-lg: 18px;
+    --font-size-lg: 17px;
     --font-size-xl: 20px;
-    --spacing-xs: 0.5rem;
-    --spacing-sm: 1rem;
-    --spacing-md: 1.5rem;
+
+    --spacing-xs: 0.4rem;
+    --spacing-sm: 0.75rem;
+    --spacing-md: 1.25rem;
     --spacing-lg: 2rem;
+    --spacing-xl: 3rem;
+
+    --line-height-tight: 1.25;
+    --line-height-normal: 1.5;
+    --line-height-relaxed: 1.75;
+
+    --transition-fast: 0.15s ease;
+    --transition-normal: 0.25s ease;
 }
 
-/* ================= BASE ================= */
+/* ---------- Dark mode ---------- */
+[data-theme="dark"] {
+    --color-primary: #4d96ff;
+    --color-primary-hover: #75aaff;
+    --color-primary-light: #1a3366;
+    --color-primary-dark: #66a3ff;
+
+    --color-secondary: #8a94a6;
+    --color-success: #34d399;
+    --color-warning: #fbbf24;
+    --color-danger: #f87171;
+    --color-info: #38bdf8;
+
+    --color-bg-body: #0f172a;
+    --color-bg-secondary: #1e293b;
+    --color-bg-card: #1e293b;
+    --color-bg-hover: #334155;
+
+    --color-text-main: #f1f5f9;
+    --color-text-muted: #94a3b8;
+    --color-text-light: #64748b;
+    --color-text-inverse: #ffffff;
+
+    --color-border: #334155;
+    --color-border-dark: #475569;
+    --color-border-focus: #4d96ff;
+
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+    --shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.5);
+    --shadow-xl: 0 8px 24px rgba(0, 0, 0, 0.6);
+}
+
+/* ---------- Base reset ---------- */
 html, body, [class*="css"] {
     font-size: var(--font-size-base) !important;
-    color: var(--text-main) !important;
+    color: var(--color-text-main) !important;
+    line-height: var(--line-height-normal) !important;
 }
+
+body {
+    background: var(--color-bg-body) !important;
+    transition: background var(--transition-normal), color var(--transition-normal);
+}
+
+.block-container {
+    padding-top: 1.5rem !important;
+    padding-bottom: 2rem !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+    max-width: none !important;
+    background: var(--color-bg-body) !important;
+}
+
+/* ---------- Typography ---------- */
+h1, h2, h3, h4, h5, h6,
+.stTitle, .stHeader {
+    color: var(--color-text-main) !important;
+    line-height: var(--line-height-tight) !important;
+    font-weight: 700 !important;
+}
+
+h1 { font-size: var(--font-size-xl) !important; }
+h2 { font-size: 1.75rem !important; }
+h3 { font-size: var(--font-size-lg) !important; }
 
 .stMarkdown p, .stMarkdown li {
-    font-size: 1rem !important;
-    line-height: 1.6 !important;
-    color: var(--text-main) !important;
-}
-.stCaption, .stCaption p {
-    font-size: 0.85rem !important;
-    color: var(--text-muted) !important;
+    font-size: var(--font-size-base) !important;
+    line-height: var(--line-height-relaxed) !important;
+    color: var(--color-text-main) !important;
 }
 
-/* Inputs */
+.stCaption, .stCaption p, .stCaption span {
+    font-size: var(--font-size-sm) !important;
+    color: var(--color-text-muted) !important;
+}
+
+.stText, .stText p, .stText span, .stText div {
+    color: var(--color-text-main) !important;
+}
+
+/* ---------- Inputs ---------- */
 .stTextInput input,
 .stNumberInput input,
 .stTextArea textarea,
-.stSelectbox div[data-baseweb="select"] {
-    font-size: 1rem !important;
+.stSelectbox div[data-baseweb="select"] > div,
+.stMultiSelect div[data-baseweb="select"] > div,
+.stDateInput input,
+.stTimeInput input,
+.stFileUploader section[data-testid="stFileUploader"] {
+    font-size: var(--font-size-base) !important;
     padding: 8px 10px !important;
-    border: 1px solid var(--border) !important;
+    border: 1px solid var(--color-border) !important;
     border-radius: var(--radius) !important;
-    background: var(--bg-body) !important;
-    color: var(--text-main) !important;
-}
-.stTextInput input:focus,
-.stNumberInput input:focus,
-.stTextArea textarea:focus {
-    border-color: var(--primary) !important;
-    box-shadow: 0 0 0 3px var(--primary-light) !important;
+    background: var(--color-bg-body) !important;
+    color: var(--color-text-main) !important;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
-/* Buttons */
-.stButton button {
-    font-size: 0.95rem !important;
-    padding: 7px 14px !important;
+.stTextInput input:focus,
+.stNumberInput input:focus,
+.stTextArea textarea:focus,
+.stSelectbox div[data-baseweb="select"] > div:focus-within {
+    border-color: var(--color-border-focus) !important;
+    box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.15) !important;
+    outline: none !important;
+}
+
+.stSelectbox div[data-baseweb="select"] {
+    background: var(--color-bg-body) !important;
+}
+
+/* Placeholder màu nhẹ */
+::placeholder {
+    color: var(--color-text-light) !important;
+    opacity: 0.7 !important;
+}
+
+/* ---------- Buttons ---------- */
+.stButton button,
+.stFormSubmitButton button,
+.stDownloadButton button,
+.stPageLink button {
+    font-size: var(--font-size-base) !important;
+    padding: 8px 14px !important;
     border-radius: var(--radius) !important;
     border: 1px solid transparent !important;
     font-weight: 600 !important;
-    transition: all 0.2s ease !important;
-}
-.stButton button[kind="primary"] {
-    background: var(--primary) !important;
-    color: var(--text-inverse) !important;
-}
-.stButton button[kind="primary"]:hover {
-    background: var(--primary-hover) !important;
-}
-.stButton button[kind="secondary"] {
-    background: var(--bg-secondary) !important;
-    color: var(--text-main) !important;
-    border: 1px solid var(--border) !important;
-}
-.stButton button[kind="secondary"]:hover {
-    background: #e9ecef !important;
+    transition: all var(--transition-fast) !important;
+    color: var(--color-text-inverse) !important;
+    background: var(--color-primary) !important;
+    box-shadow: var(--shadow-sm) !important;
 }
 
-/* Container */
-.block-container {
-    padding-top: 2rem !important;
-    padding-bottom: 2rem !important;
-    max-width: none !important;
-    padding-left: 1rem !important;
-    padding-right: 1rem !important;
+.stButton button:hover,
+.stFormSubmitButton button:hover,
+.stDownloadButton button:hover,
+.stPageLink button:hover {
+    background: var(--color-primary-hover) !important;
+    transform: translateY(-1px);
+    box-shadow: var(--shadow) !important;
 }
 
-/* ================= UTILITY CLASSES ================= */
+.stButton button:active,
+.stFormSubmitButton button:active {
+    transform: translateY(0);
+    box-shadow: var(--shadow-sm) !important;
+}
+
+/* Secondary button */
+.stButton button[kind="secondary"],
+.stFormSubmitButton button[kind="secondary"] {
+    background: var(--color-bg-secondary) !important;
+    color: var(--color-text-main) !important;
+    border: 1px solid var(--color-border) !important;
+}
+.stButton button[kind="secondary"]:hover,
+.stFormSubmitButton button[kind="secondary"]:hover {
+    background: var(--color-bg-hover) !important;
+    border-color: var(--color-border-dark) !important;
+}
+
+/* ---------- Cards & containers ---------- */
 .card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: var(--spacing-md);
-    box-shadow: var(--shadow);
-    margin-bottom: var(--spacing-md);
+    background: var(--color-bg-card) !important;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-lg) !important;
+    padding: var(--spacing-md) !important;
+    box-shadow: var(--shadow) !important;
+    margin-bottom: var(--spacing-md) !important;
 }
+
+.stContainer, .stContainer > div {
+    background: transparent !important;
+}
+
+/* ---------- Tabs ---------- */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 8px !important;
+    background: var(--color-bg-secondary) !important;
+    padding: 4px !important;
+    border-radius: var(--radius) !important;
+    border: 1px solid var(--color-border) !important;
+}
+
+.stTabs [data-baseweb="tab"] {
+    padding: 8px 16px !important;
+    font-size: var(--font-size-base) !important;
+    font-weight: 600 !important;
+    color: var(--color-text-muted) !important;
+    background: transparent !important;
+    border-radius: var(--radius) !important;
+    border: none !important;
+    transition: all var(--transition-fast) !important;
+}
+
+.stTabs [data-baseweb="tab"][aria-selected="true"] {
+    background: var(--color-primary) !important;
+    color: var(--color-text-inverse) !important;
+    box-shadow: var(--shadow-sm) !important;
+}
+
+.stTabs [data-baseweb="tab"]:hover:not([aria-selected="true"]) {
+    background: var(--color-bg-hover) !important;
+    color: var(--color-text-main) !important;
+}
+
+/* ---------- Dataframes / editors ---------- */
+.stDataFrame,
+.stDataEditor {
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius) !important;
+    overflow: hidden !important;
+    background: var(--color-bg-body) !important;
+}
+
+.stDataFrame [data-testid="stTable"],
+.stDataEditor [data-testid="stTable"] {
+    background: var(--color-bg-body) !important;
+}
+
+/* ---------- Tables (HTML) ---------- */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: var(--spacing-md);
+    font-size: var(--font-size-base);
+    color: var(--color-text-main);
+}
+
+th, td {
+    border: 1px solid var(--color-border);
+    padding: 8px 10px;
+    text-align: left;
+    vertical-align: middle;
+}
+
+th {
+    background: var(--color-bg-secondary);
+    font-weight: 700;
+    color: var(--color-text-main);
+    border-bottom: 2px solid var(--color-border-dark);
+}
+
+tr:nth-child(even) {
+    background: var(--color-bg-secondary);
+}
+
+tr:hover {
+    background: var(--color-bg-hover);
+}
+
+/* ---------- Sidebar ---------- */
+[data-testid="stSidebar"] {
+    background: var(--color-bg-secondary) !important;
+    border-right: 1px solid var(--color-border) !important;
+}
+
+[data-testid="stSidebar"] .stMarkdown p,
+[data-testid="stSidebar"] .stCaption,
+[data-testid="stSidebar"] .stMarkdown li {
+    color: var(--color-text-main) !important;
+}
+
+[data-testid="stSidebar"] .stCaption,
+[data-testid="stSidebar"] .stCaption p {
+    color: var(--color-text-muted) !important;
+}
+
+/* Sidebar button full width when mobile-stack */
+.mobile-stack .stButton button,
+.mobile-stack .stFormSubmitButton button {
+    width: 100% !important;
+}
+
+/* ---------- Avatar ---------- */
+.avatar {
+    width: 112px;
+    height: 112px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 3px solid var(--color-primary);
+    box-shadow: var(--shadow);
+}
+
+.avatar-sm {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 3px solid var(--color-primary);
+    box-shadow: var(--shadow);
+}
+
+.avatar-initials {
+    width: 112px;
+    height: 112px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--color-primary), #7c3aed);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 40px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    box-shadow: var(--shadow);
+}
+
+.avatar-initials-sm {
+    width: 72px;
+    height: 72px;
+    font-size: 26px;
+}
+
+/* ---------- Utility classes ---------- */
 .section-title {
     font-size: var(--font-size-lg);
     font-weight: 700;
-    color: var(--text-main);
+    color: var(--color-text-main);
     margin-bottom: var(--spacing-sm);
     display: flex;
     align-items: center;
     gap: 8px;
 }
+
 .field-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: var(--spacing-xs) 0;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--color-border);
 }
+
 .field-row:last-child {
     border-bottom: none;
 }
-.avatar {
-    width: 120px;
-    height: 120px;
-    border-radius: 50%;
-    object-fit: cover;
-    border: 3px solid var(--primary);
-    box-shadow: var(--shadow);
-}
-.avatar-sm {
-    width: 72px;
-    height: 72px;
-}
-.avatar-initials {
-    width: 120px;
-    height: 120px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, var(--primary), #7c3aed);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #fff;
-    font-size: 42px;
-    font-weight: 700;
-    letter-spacing: 1px;
-    border: 3px solid rgba(255,255,255,0.3);
-    box-shadow: var(--shadow);
-}
-.avatar-initials-sm {
-    width: 72px;
-    height: 72px;
-    font-size: 28px;
-}
 
-/* Responsive grid */
 .responsive-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
     gap: var(--spacing-md);
 }
 
-/* Mobile stack for buttons/forms — chi ap dung tren dien thoai */
-@media (max-width: 768px) {
-    .mobile-stack .stButton,
-    .mobile-stack .stFormSubmitButton {
-        width: 100% !important;
-    }
+a.profile-link {
+    color: var(--color-primary);
+    font-weight: 600;
+    text-decoration: none;
+    border-bottom: 1px dashed var(--color-primary);
+}
+a.profile-link:hover {
+    color: var(--color-primary-hover);
+    border-bottom: 1px solid var(--color-primary-hover);
 }
 
-/* ================= BANG LUONG TONG HOP ================= */
+/* Badge / chip */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: var(--font-size-xs);
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: var(--radius-pill);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+.badge-primary { background: var(--color-primary-light); color: var(--color-primary-dark); }
+.badge-success { background: #d1fae5; color: #065f46; }
+.badge-warning { background: #fef3c7; color: #92400e; }
+.badge-danger { background: #fee2e2; color: #991b1b; }
+.badge-info { background: #cffafe; color: #0c4a6e; }
+.badge-secondary { background: var(--color-bg-secondary); color: var(--color-text-muted); }
+
+/* ---------- Salary table ---------- */
 .salary-table {
     width: 100%;
     border-collapse: collapse;
@@ -186,77 +445,31 @@ html, body, [class*="css"] {
 }
 .salary-table th,
 .salary-table td {
-    border: 1px solid var(--border);
+    border: 1px solid var(--color-border);
     padding: 4px 6px;
     text-align: center;
     vertical-align: middle;
 }
 .salary-table th {
-    background: var(--bg-secondary);
+    background: var(--color-bg-secondary);
     font-weight: 700;
-    color: var(--text-main);
-    border-bottom: 2px solid var(--border-dark);
+    color: var(--color-text-main);
+    border-bottom: 2px solid var(--color-border-dark);
     font-size: 0.8rem;
     white-space: normal;
 }
-.salary-table td.name {
-    text-align: left;
-    font-weight: 600;
-}
-.salary-table td.num {
-    text-align: right;
-    font-weight: 600;
-}
-.salary-table td.cen {
-    text-align: center;
-    font-weight: 600;
-}
-.salary-table tr:nth-child(even) {
-    background: var(--bg-secondary);
-}
-.salary-table tr:hover {
-    background: var(--primary-light);
-}
-/* Cot Luong: du rong de chua '12,345,678 d' khong xuong dong */
+.salary-table td.name { text-align: left; font-weight: 600; }
+.salary-table td.num { text-align: right; font-weight: 600; }
+.salary-table td.cen { text-align: center; font-weight: 600; }
+.salary-table tr:nth-child(even) { background: var(--color-bg-secondary); }
+.salary-table tr:hover { background: var(--color-primary-light); }
 .salary-table td.luong,
 .salary-table th.luong {
     min-width: 130px;
     text-align: right;
 }
 
-/* Tabs */
-}
-
-/* Tabs */
-.stTabs [data-baseweb="tab-list"] {
-    gap: 8px !important;
-}
-.stTabs [data-baseweb="tab"] {
-    padding: 8px 16px !important;
-    font-size: 0.95rem !important;
-}
-
-/* Dataframes / editors */
-.stDataFrame,
-.stDataEditor {
-    border: 1px solid var(--border) !important;
-    border-radius: var(--radius) !important;
-    overflow: hidden !important;
-}
-
-/* Profile link */
-a.profile-link {
-    color: var(--primary);
-    font-weight: 600;
-    text-decoration: none;
-    border-bottom: 1px dashed var(--primary);
-}
-a.profile-link:hover {
-    color: var(--primary-hover);
-    border-bottom: 1px solid var(--primary-hover);
-}
-
-/* ================= RESPONSIVE ================= */
+/* ---------- Responsive ---------- */
 @media (max-width: 1024px) {
     .block-container {
         padding-left: 1rem !important;
@@ -271,9 +484,10 @@ a.profile-link:hover {
     .block-container {
         padding-left: 0.75rem !important;
         padding-right: 0.75rem !important;
-        padding-top: 1.5rem !important;
+        padding-top: 1.25rem !important;
     }
-    .stButton button {
+    .stButton button,
+    .stFormSubmitButton button {
         font-size: 0.85rem !important;
         padding: 6px 10px !important;
     }
@@ -303,6 +517,10 @@ a.profile-link:hover {
     .mobile-stack .stColumns > div {
         width: 100% !important;
     }
+    h1, .stTitle { font-size: 1.5rem !important; }
+    h2 { font-size: 1.35rem !important; }
+    h3 { font-size: 1.2rem !important; }
+    .section-title { font-size: 1.2rem !important; }
 }
 
 @media (max-width: 480px) {
@@ -325,4 +543,405 @@ a.profile-link:hover {
     .section-title {
         font-size: 1.25rem !important;
     }
+    .stTabs [data-baseweb="tab"] {
+        padding: 6px 10px !important;
+        font-size: 0.85rem !important;
+    }
 }
+
+/* ---------- Dark mode toggle button ---------- */
+.theme-toggle {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 9999;
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-pill);
+    padding: 6px 12px;
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    color: var(--color-text-main);
+    box-shadow: var(--shadow);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all var(--transition-fast);
+}
+.theme-toggle:hover {
+    border-color: var(--color-primary);
+    box-shadow: var(--shadow-lg);
+}
+
+/* Hide Streamlit default branding */
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+
+/* ==========================================================================
+   SIDEBAR — HỆ THỐNG HỒ SƠ & AI AGENT
+   - Cardroup tài khoản, nhóm chức năng rõ ràng
+   - Nút thu gọn / mở sidebar
+   - Hoạt động trong cả light & dark mode
+   ========================================================================== */
+
+/* Sidebar container (wrap nội dung render trong cột sidebar của main.py) */
+.sb-container {
+    background: var(--color-bg-secondary) !important;
+    border-right: 1px solid var(--color-border) !important;
+    min-width: 240px !important;
+    transition: min-width var(--transition-normal), opacity var(--transition-fast);
+}
+
+/* Sidebar mở rộng */
+.sb-container.sb-open {
+    min-width: 280px !important;
+}
+
+/* Sidebar thu gọn */
+.sb-container.sb-collapsed {
+    min-width: 56px !important;
+    overflow: hidden !important;
+}
+
+/* Khi thu gọn: ẩn phần mô tả nút, chỉ giữ icon (áp cho nút trong sidebar) */
+.sb-container.sb-collapsed .stButton button span {
+    visibility: hidden !important;
+    width: 0 !important;
+    display: inline-block !important;
+}
+
+/* Khi thu gọn: căn giữa các nút và icon */
+.sb-container.sb-collapsed .stButton button {
+    justify-content: center !important;
+    text-align: center !important;
+    gap: 0 !important;
+}
+
+/* Khi thu gọn: avatar-initials vẫn giữ kích thước nhỏ, avatar ẩn */
+.sb-container.sb-collapsed .avatar {
+    display: none !important;
+}
+.sb-container.sb-collapsed .avatar-initials {
+    width: 48px !important;
+    height: 48px !important;
+    font-size: 22px !important;
+    margin: 0 auto var(--spacing-xs) auto !important;
+}
+
+/* Khi thu gọn: ẩn tên và role */
+.sb-container.sb-collapsed .sb-account-name,
+.sb-container.sb-collapsed .sb-account-role {
+    display: none !important;
+}
+
+/* Khi thu gọn: ẩn section titles và dividers */
+.sb-container.sb-collapsed .sb-section-title,
+.sb-container.sb-collapsed .sb-divider {
+    display: none !important;
+}
+
+/* Khi thu gọn: chat box ẩn đi */
+.sb-container.sb-collapsed .card {
+    display: none !important;
+}
+
+/* Collapse / expand toggle button */
+.sb-collapse-btn {
+    position: absolute;
+    top: var(--spacing-sm);
+    right: var(--spacing-sm);
+    z-index: 10;
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-pill);
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--font-size-xs);
+    cursor: pointer;
+    color: var(--color-text-main);
+    box-shadow: var(--shadow-sm);
+    transition: all var(--transition-fast);
+}
+
+.sb-collapse-btn:hover {
+    border-color: var(--color-primary);
+    background: var(--color-primary-light);
+    color: var(--color-primary-dark);
+}
+
+/* Màu chữ trong sidebar (cả light & dark) */
+.sb-container .stMarkdown p,
+.sb-container .stMarkdown li,
+.sb-container .stText,
+.sb-container .stText p {
+    color: var(--color-text-main) !important;
+}
+
+.sb-container .stCaption,
+.sb-container .stCaption p,
+.sb-container .stCaption span {
+    color: var(--color-text-muted) !important;
+}
+
+/* Sections */
+.sb-section {
+    margin-bottom: var(--spacing-md);
+    padding: var(--spacing-sm) 0;
+}
+
+.sb-section-title {
+    font-size: var(--font-size-sm);
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--color-text-light);
+    margin-bottom: var(--spacing-sm);
+    padding: 0 var(--spacing-sm);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.sb-divider {
+    border: none;
+    border-top: 1px solid var(--color-border);
+    margin: var(--spacing-sm) 0;
+}
+
+/* Account card */
+.sb-account-card {
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-sm);
+    margin: 0 auto var(--spacing-md) auto !important;
+    box-shadow: var(--shadow-sm);
+    text-align: center;
+    width: 100% !important;
+    max-width: 100% !important;
+    display: block !important;
+}
+
+.sb-account-card .avatar {
+    width: 88px !important;
+    height: 88px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    margin-bottom: var(--spacing-sm) !important;
+    border: 3px solid var(--color-primary);
+    display: block !important;
+}
+
+.sb-account-card .avatar-initials {
+    width: 88px !important;
+    height: 88px !important;
+    font-size: 32px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    margin-bottom: var(--spacing-sm) !important;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+}
+
+.sb-account-name {
+    font-weight: 700;
+    font-size: var(--font-size-base);
+    color: var(--color-text-main) !important;
+    margin: 4px 0 2px 0 !important;
+    line-height: var(--line-height-tight);
+    text-align: center;
+    display: block !important;
+    width: 100% !important;
+}
+
+.sb-account-role {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted) !important;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    text-align: center;
+    display: block !important;
+    width: 100% !important;
+}
+
+/* Khi thu gọn: avatar căn giữa trong sidebar hẹp */
+.sb-container.sb-collapsed .sb-account-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: var(--spacing-xs) !important;
+    margin: 0 auto var(--spacing-md) auto !important;
+    text-align: center;
+}
+
+.sb-container.sb-collapsed .avatar {
+    display: none !important;
+}
+
+.sb-container.sb-collapsed .avatar-initials {
+    width: 48px !important;
+    height: 48px !important;
+    font-size: 22px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    margin-bottom: var(--spacing-xs) !important;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+}
+
+.sb-container.sb-collapsed .sb-account-name,
+.sb-container.sb-collapsed .sb-account-role {
+    display: none !important;
+}
+
+/* Button groups in sidebar */
+.sb-container .stButton button,
+.sb-container .stFormSubmitButton button {
+    width: 100% !important;
+    font-size: var(--font-size-sm) !important;
+    padding: 9px 12px !important;
+    border-radius: var(--radius) !important;
+    text-align: left !important;
+    justify-content: flex-start !important;
+    gap: 8px;
+    background: var(--color-bg-body) !important;
+    color: var(--color-text-main) !important;
+    border: 1px solid var(--color-border) !important;
+    box-shadow: none !important;
+}
+
+.sb-container .stButton button:hover,
+.sb-container .stFormSubmitButton button:hover {
+    background: var(--color-bg-hover) !important;
+    border-color: var(--color-border-dark) !important;
+    color: var(--color-primary) !important;
+    box-shadow: var(--shadow-sm) !important;
+}
+
+.sb-container .stButton button[kind="primary"],
+.sb-container .stFormSubmitButton button[kind="primary"] {
+    background: var(--color-primary) !important;
+    color: var(--color-text-inverse) !important;
+    border: none !important;
+}
+
+.sb-container .stButton button[kind="primary"]:hover,
+.sb-container .stFormSubmitButton button[kind="primary"]:hover {
+    background: var(--color-primary-hover) !important;
+    box-shadow: var(--shadow) !important;
+}
+
+/* Chat box trong sidebar */
+.sb-container .stContainer,
+.sb-container [data-testid="stContainer"] {
+    background: transparent !important;
+}
+
+.sb-container .card {
+    background: var(--color-bg-card) !important;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-lg) !important;
+    box-shadow: var(--shadow) !important;
+}
+
+/* Mobile: ẩn sidebar mặc định */
+@media (max-width: 768px) {
+    .sb-container {
+        display: none !important;
+    }
+    .sb-container.sb-collapsed {
+        display: none !important;
+    }
+}
+
+/* End of sidebar CSS */
+
+/* ==========================================================================
+   PROFILE PAGE — HỒ SƠ CÔNG KHAI
+   - Header, section, cards, publications, publications table
+   - Hoạt động trong cả light & dark mode
+   ========================================================================== */
+
+/* Profile header */
+.profile-header {
+    margin-bottom: var(--spacing-lg);
+}
+
+.profile-heading {
+    font-size: 2.2rem !important;
+    font-weight: 700 !important;
+    line-height: 1.2 !important;
+    color: var(--color-text-main) !important;
+    margin: 0 0 4px 0 !important;
+    text-align: left;
+}
+
+.profile-sub {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-muted) !important;
+    margin-bottom: 6px !important;
+}
+
+.profile-chucvu {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--color-primary) !important;
+    margin-bottom: 6px !important;
+}
+
+.profile-donvi {
+    font-size: var(--font-size-base);
+    color: var(--color-text-muted) !important;
+}
+
+/* Section title on profile page */
+.profile-section-title {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--color-text-main);
+    margin: var(--spacing-md) 0 var(--spacing-sm) 0;
+}
+
+/* Info card (dark mode aware) */
+.profile-card {
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-md);
+    box-shadow: var(--shadow-sm);
+    margin-bottom: var(--spacing-md);
+}
+
+/* Project card */
+.profile-project-card {
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-md);
+    box-shadow: var(--shadow-sm);
+    margin-bottom: var(--spacing-sm);
+}
+
+/* AI summary box */
+.profile-ai-box {
+    background: rgba(26, 115, 232, 0.08);
+    border-left: 4px solid var(--color-primary);
+    border-radius: var(--radius);
+    padding: var(--spacing-md);
+    font-size: var(--font-size-base);
+    line-height: 1.7;
+    margin-bottom: var(--spacing-md);
+}
+
+[data-theme="dark"] .profile-ai-box {
+    background: rgba(77, 150, 255, 0.15);
+    border-left-color: var(--color-primary);
+}
+
+/* End of profile CSS */
+

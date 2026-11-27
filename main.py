@@ -47,6 +47,20 @@ try:
 except FileNotFoundError:
     pass
 
+# Áp dụng theme attribute (light/dark) lên document element
+_dark = bool(st.session_state.get("dark_mode", False))
+st.markdown(
+    f"""
+    <script>
+    (function() {{
+        var root = document.documentElement;
+        root.setAttribute("data-theme", { "dark" if _dark else "light" });
+    }})();
+    </script>
+    """,
+    unsafe_allow_html=True,
+)
+
 init_session_state()
 
 # =========================================================
@@ -142,11 +156,14 @@ try:
 except Exception:
     _screen_w = 1000
 
+# Nếu sidebar bị thu gọn thì cột sidebar rất nhỏ
+_is_collapsed = bool(st.session_state.get("sidebar_collapsed", False))
 if _screen_w < 768:
     sb_ratio, main_ratio = 0.01, 0.99
+elif _is_collapsed:
+    sb_ratio, main_ratio = 0.04, 0.96
 else:
-    sb_ratio = 0.25
-    main_ratio = 0.75
+    sb_ratio, main_ratio = 0.25, 0.75
 
 col_sb, col_main = st.columns([sb_ratio, main_ratio], gap="small")
 

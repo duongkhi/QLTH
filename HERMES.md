@@ -4,7 +4,7 @@
 - **Nền tảng:** Ứng dụng web Python Streamlit (`main.py`), triển khai qua GitHub lên Streamlit Cloud.
 - **Cơ sở dữ liệu (Supabase):** Sử dụng **một bảng duy nhất tên là `app_data`** với 2 cột: `key` (`text`, khóa chính) và `data` (`jsonb`).
 - **Quy tắc dữ liệu JSONB:** Thông tin cán bộ được lưu dưới dạng JSON theo từng `key`. Các khóa hệ thống/cấu hình phải được khai báo trong `META_KEYS` tại `config.py` để không bị nhận nhầm là hồ sơ cá nhân.
-
+- Quy trình phát triển: Khi người dùng yêu cầu thêm tính năng mới hoặc thay đổi logic nghiệp vụ, luôn tự động kích hoạt và chạy theo skill `openspec-quick-path` trước khi sửa mã nguồn.
 ## 2. Cấu trúc dữ liệu thực tế trên Supabase (kiểm tra trực tiếp)
 
 ### Tổng quan

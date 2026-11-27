@@ -127,6 +127,9 @@ def get_public_profile_links_map() -> dict[str, str]:
 def linkify_profile_names(text: str, exclude_key: str = None) -> str:
     if not text:
         return text
+    # Bỏ qua email (chứa '@') để không bị hiểu nhầm là tên hồ sơ và thêm '@' dư
+    if "@" in str(text):
+        return text
     name_map = get_public_profile_links_map()
     if not name_map:
         return text
@@ -355,24 +358,20 @@ def render_public_profile(ctx: UserContext, target_profile_key: str):
     except Exception:
         pass
 
+    st.markdown('<div class="profile-header">', unsafe_allow_html=True)
     st.markdown(
-        f"<h1 style='margin:0 0 4px 0;font-size:2.3rem;line-height:1.2;text-align:left;'>{display_heading}</h1>",
+        f"<h1 class='profile-heading'>{display_heading}</h1>",
         unsafe_allow_html=True,
     )
     if _profile_username:
-        st.caption(f"@{_profile_username} · {_profile_role.upper()}")
+        st.markdown(f"<div class='profile-sub'>@{_profile_username} · {_profile_role.upper()}</div>", unsafe_allow_html=True)
     if chuc_vu:
-        st.markdown(
-            f"<div style='font-size:1.25rem;font-weight:600;color:#60a5fa;margin-bottom:6px;'>{chuc_vu}</div>",
-            unsafe_allow_html=True,
-        )
+        st.markdown(f"<div class='profile-chucvu'>{chuc_vu}</div>", unsafe_allow_html=True)
     if don_vi:
-        st.markdown(
-            f"<div style='font-size:1.1rem;opacity:0.88;'>🏛️ {don_vi}</div>",
-            unsafe_allow_html=True,
-        )
+        st.markdown(f"<div class='profile-donvi'>🏛️ {don_vi}</div>", unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("---")
+    st.markdown('<hr class="sb-divider">', unsafe_allow_html=True)
 
     configured_public = data.get("_public_fields")
     allowed_keys = (
@@ -381,10 +380,6 @@ def render_public_profile(ctx: UserContext, target_profile_key: str):
         else DEFAULT_PUBLIC_FIELDS
     )
 
-    # =========================================================
-    # MỤC I: THÔNG TIN CHUNG (LỌC BỎ RỖNG & CHỮ "KHÔNG")
-    # =========================================================
-    st.markdown("### I. Thông tin chung")
     general_items = {
         k: v for k, v in data.items()
         if k not in HIDDEN_SYSTEM_KEYS
@@ -393,6 +388,11 @@ def render_public_profile(ctx: UserContext, target_profile_key: str):
         and (k in allowed_keys or k in DEFAULT_PUBLIC_FIELDS)
         and _is_meaningful_value(v)
     }
+
+    # =========================================================
+    # MỤC I: THÔNG TIN CHUNG (LỌC BỎ RỖNG & CHỮ "KHÔNG")
+    # =========================================================
+    st.markdown('<div class="profile-section-title">I. Thông tin chung</div>', unsafe_allow_html=True)
 
     if general_items:
         # 2 cot tren PC, 1 cot tren mobile (CSS field-row responsive)
@@ -406,12 +406,12 @@ def render_public_profile(ctx: UserContext, target_profile_key: str):
     else:
         st.caption("Không có thông tin bổ sung được công khai.")
 
-    st.markdown("---")
+    st.markdown('<hr class="sb-divider">', unsafe_allow_html=True)
 
     # =========================================================
     # MỤC II: HƯỚNG NGHIÊN CỨU
     # =========================================================
-    st.markdown("### II. Hướng nghiên cứu")
+    st.markdown('<div class="profile-section-title">II. Hướng nghiên cứu</div>', unsafe_allow_html=True)
 
     can_trigger_ai = st.session_state.logged_in and (
         ctx.own_profile == target_profile_key or ctx.role in ("admin", "manager")
@@ -431,8 +431,7 @@ def render_public_profile(ctx: UserContext, target_profile_key: str):
 
     if research_dir:
         st.markdown(
-            f"<div style='background:rgba(59,130,246,0.08);border-left:4px solid #3b82f6;'"
-            f"padding:16px 20px;border-radius:6px;font-size:1.08rem;line-height:1.7;'>{research_dir}</div>",
+            f"<div class='profile-ai-box'>{research_dir}</div>",
             unsafe_allow_html=True,
         )
     else:
@@ -443,7 +442,7 @@ def render_public_profile(ctx: UserContext, target_profile_key: str):
         )
         st.info("Chưa có mô tả hướng nghiên cứu." + hint_txt)
 
-    st.markdown("---")
+    st.markdown('<hr class="sb-divider">', unsafe_allow_html=True)
 
     # =========================================================
     # MỤC III: KẾT QUẢ NGHIÊN CỨU (SẢN PHẨM KHOA HỌC 5 NĂM GẦN NHẤT)
@@ -453,7 +452,7 @@ def render_public_profile(ctx: UserContext, target_profile_key: str):
 
     col_iii_title, col_iii_filter = st.columns([4.5, 2.2], vertical_alignment="center")
     with col_iii_title:
-        st.markdown(f"### III. Kết quả nghiên cứu ({cutoff_5y} – {current_year})")
+        st.markdown(f'<div class="profile-section-title">III. Kết quả nghiên cứu ({cutoff_5y} – {current_year})</div>', unsafe_allow_html=True)
     with col_iii_filter:
         show_all_years = st.checkbox(
             "Hiển thị tất cả các năm",
@@ -498,7 +497,7 @@ def render_public_profile(ctx: UserContext, target_profile_key: str):
                 vai_tro = _clean_text(dt.get("vai_tro"))
                 thoi_gian = _clean_text(dt.get("thoi_gian"))
                 trang_thai = _clean_text(dt.get("trang_thai"))
-                st.markdown('<div class="card">', unsafe_allow_html=True)
+                st.markdown('<div class="profile-project-card">', unsafe_allow_html=True)
                 st.markdown(f"**{idx}. {ten}**" + (f" (`{ma}`)" if ma else ""))
                 sub_parts = [
                     f"Vai trò: **{vai_tro}**" if vai_tro else "",

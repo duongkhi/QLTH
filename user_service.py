@@ -97,13 +97,14 @@ def create_user(u, pw):
     return True, "Đăng ký thành công! Hãy nạp dữ liệu ở mục Setting."
 
 
-def admin_create_user(u, pw, role, own_prof=None, allowed_tools=None, salary_link=None):
+def admin_create_user(u, pw, role, own_prof=None, allowed_tools=None, salary_link=None, tax_profile=None):
     c = load_auth_config()
     if u in c["users"]:
         return False, "Tên đăng nhập đã tồn tại."
     c["users"][u] = {
         "password_hash": hash_password(pw),
         "own_profile": own_prof if own_prof else (u if role == "user" else None),
+        "tax_profile": tax_profile if tax_profile else None,
         "role": role,
         "allowed_tools": allowed_tools or [],
         "salary_link": salary_link if salary_link else None,
@@ -117,13 +118,14 @@ def admin_create_user(u, pw, role, own_prof=None, allowed_tools=None, salary_lin
     return True, f"Đã tạo user '{u}' (role '{role}')."
 
 
-def admin_update_user(target, new_role, new_own, new_tools=None, salary_link=None):
+def admin_update_user(target, new_role, new_own, new_tools=None, salary_link=None, tax_profile=None):
     c = load_auth_config()
     if target not in c["users"]:
         return False, "Không tìm thấy user."
     rec = c["users"][target]
     rec["role"] = new_role
     rec["own_profile"] = new_own if new_own else (target if new_role == "user" else None)
+    rec["tax_profile"] = tax_profile if tax_profile else None
     if new_tools is not None:
         rec["allowed_tools"] = new_tools
     if salary_link is not None:
@@ -347,6 +349,38 @@ def lay_ds_nhan_vien_co_luong() -> list[str]:
 def lay_ds_key_co_luong() -> list[str]:
     """Tra ve danh sach key (username hoac fullname) trong salary_profiles (dung cho admin)."""
     return sorted(get_salary_profiles().keys())
+
+
+def get_username_from_salary_key(key: str) -> str | None:
+    """Tra ve username cua user lien ket voi key salary_profiles.
+
+    - Neu user co salary_link == key, tra ve username do.
+    - Neu user co own_profile khop voi ho_va_ten trong entry salary_profiles, tra ve username do.
+    - Tra ve None neu khong tim thay.
+    """
+    from storage import load_auth_config, load_user_profile
+
+    auth_cfg = load_auth_config() or {}
+    users = auth_cfg.get("users", {})
+
+    # 1) Tim bang salary_link (chuong trinh ưu tien)
+    for uname, rec in users.items():
+        if rec.get("salary_link") == key:
+            return uname
+
+    # 2) Tim bang own_profile khop ho_va_ten cua entry salary_profiles
+    profiles = get_salary_profiles()
+    entry = profiles.get(key, {})
+    entry_ho_ten = entry.get("ho_va_ten", "").strip()
+    if entry_ho_ten:
+        for uname, rec in users.items():
+            own_prof = rec.get("own_profile") or uname
+            prof = load_user_profile(own_prof) or {}
+            hv = prof.get("ho_va_ten") or prof.get("ho_ten") or prof.get("full_name") or ""
+            if hv.strip() == entry_ho_ten:
+                return uname
+
+    return None
 
 
 # ============================================================

@@ -121,6 +121,19 @@ def _get_latest_change(rec: dict) -> dict:
     return max(lich_su, key=lambda b: (b.get("nam", 0), b.get("thang", 0)))
 
 
+def _find_users_by_name(q: str, users_with_salary: dict) -> list:
+    """Tra ve danh sach (uid, rec) khop chinh xac ho ten (bo dau, khoang trang, hoa/thuong)."""
+    if not q or not q.strip():
+        return []
+    q_norm = _strip_diacritics(q.strip().lower()).replace(" ", "")
+    matched = []
+    for uid, rec in users_with_salary.items():
+        ten = rec.get("ho_va_ten", "")
+        if _strip_diacritics(ten.lower()).replace(" ", "") == q_norm:
+            matched.append((uid, rec))
+    return matched
+
+
 def _load_smtp_config() -> dict:
     cfg = load_json_from_db("smtp_config") or {}
     if not isinstance(cfg, dict):
@@ -368,55 +381,65 @@ def render_salary_management_page(ctx):
         # Label ngoài container; trong container chỉ còn ô nhập và 3 nút chức năng
         st.markdown("---")
         st.caption("Nhập họ tên cán bộ cần thao tác")
-        # Giới hạn tổng chiều rộng của hàng hành động; ô nhập và các nút có kích thước cố định (rem), nút sát nhau và căn trái
+        # Giới hạn tổng chiều rộng của hàng hành động; ô nhập và 3 nút gọn gàng, sát nhau, căn trái
         st.markdown(
             """
             <style>
-            div[data-testid="stHorizontalBlock"]:has(input[placeholder="Nhập họ và tên cán bộ..."]) {
-                max-width: 72rem !important;
+            div[data-testid="stHorizontalBlock"]:has(input#salary_fullname_input) {
+                max-width: 900px !important;
                 width: 100% !important;
                 gap: 0.5rem !important;
+                justify-content: flex-start !important;
+                margin-left: 0 !important;
             }
-            div[data-testid="stHorizontalBlock"]:has(input[placeholder="Nhập họ và tên cán bộ..."]) .stTextInput > div > div > input {
-                width: 30rem !important;
-                max-width: 30rem !important;
+            div[data-testid="stHorizontalBlock"]:has(input#salary_fullname_input) .stTextInput > div > div > input {
+                width: 100% !important;
+                max-width: none !important;
+                min-width: 150px !important;
             }
-            div[data-testid="stHorizontalBlock"]:has(input[placeholder="Nhập họ và tên cán bộ..."]) .stButton > button {
+            div[data-testid="stHorizontalBlock"]:has(input#salary_fullname_input) .stButton > button {
                 width: auto !important;
-                min-width: 4rem !important;
-                max-width: 6rem !important;
-                padding: 0.2rem 0.6rem !important;
+                min-width: 5rem !important;
+                padding: 0.45rem 1rem !important;
+                font-size: 0.9rem !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                gap: 0.4rem !important;
             }
             </style>
             """,
             unsafe_allow_html=True,
         )
         with st.container():
-            fu_c1, fu_c2, fu_c3, fu_c4 = st.columns([9, 1, 1, 1])
+            # Callback tra cứu khi nhan Enter trong ô nhập
+            def _on_fullname_change():
+                q = st.session_state.get("salary_fullname_input", "")
+                matched = _find_users_by_name(q, users_with_salary)
+                if len(matched) == 1:
+                    st.session_state["salary_view_uid"] = matched[0][0]
+                    st.session_state["salary_edit_uid"] = None
+                    st.session_state["salary_multi_match"] = None
+                elif len(matched) > 1:
+                    st.session_state["salary_view_uid"] = None
+                    st.session_state["salary_edit_uid"] = None
+                    st.session_state["salary_multi_match"] = matched
+                else:
+                    st.session_state["salary_view_uid"] = None
+                    st.session_state["salary_edit_uid"] = None
+                    st.session_state["salary_multi_match"] = None
+
+            fu_c1, fu_c2, fu_c3 = st.columns([6, 1.2, 1.2])
             with fu_c1:
                 fullname_input = st.text_input(
-                    "",
+                    "Họ tên cán bộ",
                     key="salary_fullname_input",
                     placeholder="Nhập họ và tên cán bộ...",
                     label_visibility="collapsed",
+                    on_change=_on_fullname_change,
                 )
             with fu_c2:
-                if st.button("📄", key="btn_table_view_full", help="Xem chi tiết lương của cán bộ này"):
-                    matched_uid = None
-                    q = _strip_diacritics(fullname_input.strip().lower()).replace(" ", "")
-                    for uid, rec in users_with_salary.items():
-                        ten = rec.get("ho_va_ten", "")
-                        if _strip_diacritics(ten.lower()).replace(" ", "") == q:
-                            matched_uid = uid
-                            break
-                    if matched_uid:
-                        st.session_state["salary_view_uid"] = matched_uid
-                        st.session_state["salary_edit_uid"] = None
-                        st.rerun()
-                    else:
-                        st.warning(f"⚠️ Không tìm thấy cán bộ có họ tên: {fullname_input}")
-            with fu_c3:
-                if st.button("🗑️", key="btn_table_del_full", help="Xóa toàn bộ biến động"):
+                if st.button("🗑️ Xóa", key="btn_table_del_full", help="Xóa toàn bộ biến động", width="stretch"):
                     matched_uid = None
                     q = _strip_diacritics(fullname_input.strip().lower()).replace(" ", "")
                     for uid, rec in users_with_salary.items():
@@ -434,8 +457,8 @@ def render_salary_management_page(ctx):
                             st.error("❌ Không xóa được dữ liệu.")
                     else:
                         st.warning(f"⚠️ Không tìm thấy cán bộ có họ tên: {fullname_input}")
-            with fu_c4:
-                if st.button("✏️", key="btn_table_edit_full", help="Chỉnh sửa biến động"):
+            with fu_c3:
+                if st.button("✏️ Sửa", key="btn_table_edit_full", help="Chỉnh sửa biến động", width="stretch"):
                     matched_uid = None
                     q = _strip_diacritics(fullname_input.strip().lower()).replace(" ", "")
                     for uid, rec in users_with_salary.items():
@@ -446,37 +469,92 @@ def render_salary_management_page(ctx):
                     if matched_uid:
                         st.session_state["salary_edit_uid"] = matched_uid
                         st.session_state["salary_view_uid"] = None
+                        st.session_state["salary_multi_match"] = None
                         st.rerun()
                     else:
                         st.warning(f"⚠️ Không tìm thấy cán bộ có họ tên: {fullname_input}")
 
+        # ---------- XU LY KET QUA TRA CUU (nhan Enter hoac chon tu danh sach trung ten) ----------
+        fullname_q = (st.session_state.get("salary_fullname_input") or "").strip()
+        multi_match = st.session_state.get("salary_multi_match")
         view_uid = st.session_state.get("salary_view_uid")
+
+        if fullname_q:
+            matched = _find_users_by_name(fullname_q, users_with_salary)
+            if not matched:
+                st.warning(f"⚠️ Không tìm thấy cán bộ có họ tên: {fullname_q}")
+            elif len(matched) == 1:
+                view_uid = matched[0][0]
+                st.session_state["salary_view_uid"] = view_uid
+                st.session_state["salary_multi_match"] = None
+                st.info(f"✅ Đã tìm thấy: **{matched[0][1].get('ho_va_ten', view_uid)}** (@{view_uid})")
+            else:
+                # Nhieu nguoi trung ten -> bao va hien danh sach chon
+                st.session_state["salary_view_uid"] = None
+                st.session_state["salary_multi_match"] = matched
+                st.warning(
+                    f"🔍 Tìm thấy **{len(matched)}** người trùng tên '{fullname_q}', "
+                    "cần thêm thông tin để phân biệt."
+                )
+                view_uid = None
+
+        # Neu co danh sach trung ten, hien selectbox de chon
+        if st.session_state.get("salary_multi_match"):
+            options = [f"{rec.get('ho_va_ten', uid)} (@{uid})" for uid, rec in st.session_state["salary_multi_match"]]
+            sel = st.selectbox("Chọn cán bộ cần xem lương:", options, key="salary_multi_select")
+            if sel:
+                # lay uid tu cuoi chuoi (@uid)
+                uid_pick = sel.rsplit("(@", 1)[-1].rstrip(")")
+                st.session_state["salary_view_uid"] = uid_pick
+                view_uid = uid_pick
+                st.session_state["salary_multi_match"] = None
+
+        # ---------- CHON DINH DANG BANG LUONG ----------
+        sal_fmt_col1, sal_fmt_col2 = st.columns([3, 1])
+        with sal_fmt_col1:
+            st.markdown("---")
+            st.caption("Bảng lương mặc định: **Bien che**. Chọn định dạng nếu cần:")
+        with sal_fmt_col2:
+            loai_luong = st.selectbox(
+                "Định dạng",
+                options=["Bien che", "Hop dong", "Khac"],
+                index=0,
+                key="salary_view_format",
+                label_visibility="collapsed",
+            )
+
+        # ---------- HIEN BANG LUONG CHI TIET ----------
         if view_uid and view_uid in users_with_salary:
             rec = users_with_salary[view_uid]
             ho_ten = rec.get("ho_va_ten", view_uid)
             latest = latest_map.get(view_uid, {})
-            with st.expander(f"📄 Chi tiet luong: {ho_ten}", expanded=True):
+            # Ap dinh da chon vao latest (de hien thi / edit)
+            latest["loai"] = loai_luong
+            with st.expander(f"📄 Chi tiết lương: {ho_ten}", expanded=True):
                 st.markdown(f"### 👤 {ho_ten} (@{view_uid})")
-                st.markdown(f"**Phong:** {rec.get('don_vi_cong_tac_phong', '') or '—'}")
-                st.markdown("**Thong tin luong gan nhat (chi xem):**")
+                st.markdown(f"**Phòng:** {rec.get('don_vi_cong_tac_phong', '') or '—'}")
+                st.markdown(f"**Định dạng lương:** {loai_luong}")
+                st.markdown("**Thông tin lương gần nhất:**")
                 col_a, col_b = st.columns(2)
                 with col_a:
-                    st.markdown(f"- Bac luong: {latest.get('bac_luong', '') or '—'}")
-                    st.markdown(f"- He so luong: {latest.get('he_so_luong', '') or '—'}")
-                    st.markdown(f"- Luong co ban: {latest.get('luong_cb', '') or '—'}")
-                    st.markdown(f"- Phu cap LD: {latest.get('pc_ld', '') or '—'}")
+                    st.markdown(f"- Năm: {latest.get('nam', '') or '—'}")
+                    st.markdown(f"- Tháng: {latest.get('thang', '') or '—'}")
+                    st.markdown(f"- Ngày hiệu lực: {latest.get('ngay_hieu_luc', '') or '—'}")
+                    st.markdown(f"- Số quyết định: {latest.get('quyet_dinh_so', '') or '—'}")
+                    st.markdown(f"- Bậc lương: {latest.get('bac_luong', '') or '—'}")
+                    st.markdown(f"- Hệ số lương: {latest.get('he_so_luong', '') or '—'}")
+                    st.markdown(f"- Lương cơ bản: {latest.get('luong_cb', '') or '—'}")
+                    st.markdown(f"- Phụ cấp LD: {latest.get('pc_ld', '') or '—'}")
                 with col_b:
-                    st.markdown(f"- He so vuot khung: {latest.get('he_so_vuot_khung', '') or '—'}")
-                    st.markdown(f"- He so doc hai (vt): {latest.get('he_so_doc_hai_theo_vi_tri', '') or '—'}")
-                    st.markdown(f"- He so doc hai (tien): {latest.get('he_so_doc_hai_tien', '') or '—'}")
-                    st.markdown(f"- Tong cong: {latest.get('tong_cong', '') or '—'}")
-                st.markdown(f"- Ngay hieu luc: {latest.get('ngay_hieu_luc', '') or '—'}")
-                st.markdown(f"- So quyet dinh: {latest.get('quyet_dinh_so', '') or '—'}")
-                st.markdown(f"- Thang/Nam: {latest.get('thang', '')}/{latest.get('nam', '')}")
+                    st.markdown(f"- Hệ số vượt khung: {latest.get('he_so_vuot_khung', '') or '—'}")
+                    st.markdown(f"- Hệ số độc hại (vt): {latest.get('he_so_doc_hai_theo_vi_tri', '') or '—'}")
+                    st.markdown(f"- Hệ số độc hại (tiền): {latest.get('he_so_doc_hai_tien', '') or '—'}")
+                    st.markdown(f"- Tổng cộng: {latest.get('tong_cong', '') or '—'}")
+                    st.markdown(f"- Tiền lương: {latest.get('tien_luong', '') or '—'}")
+                    st.markdown(f"- Phụ cấp: {latest.get('phu_cap', '') or '—'}")
+                    st.markdown(f"- Ghi chú: {latest.get('ghi_chu', '') or '—'}")
                 if latest.get("ly_do_bien_dong"):
-                    st.markdown(f"- Ly do: {latest['ly_do_bien_dong']}")
-                if latest.get("ghi_chu"):
-                    st.markdown(f"- Ghi chu: {latest['ghi_chu']}")
+                    st.markdown(f"- Lý do: {latest['ly_do_bien_dong']}")
 
     # =========================================================
     # TAB THÔNG BÁO LƯƠNG
