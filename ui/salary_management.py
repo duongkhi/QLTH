@@ -365,13 +365,41 @@ def render_salary_management_page(ctx):
                     st.session_state["salary_tab1_page"] = page + 1
                     st.rerun()
 
-        # Hướng dẫn đặt ra ngoài container để trong container chỉ có ô nhập và các nút chức năng, giúp chúng căn ngang đẹp
+        # Label ngoài container; trong container chỉ còn ô nhập và 3 nút chức năng
         st.markdown("---")
-        st.caption("Nhập họ tên cán bộ cần thao tác, sau đó bấm nút chức năng bên dưới.")
+        st.caption("Nhập họ tên cán bộ cần thao tác")
+        # Giới hạn tổng chiều rộng của hàng hành động; ô nhập và các nút có kích thước cố định (rem), nút sát nhau và căn trái
+        st.markdown(
+            """
+            <style>
+            div[data-testid="stHorizontalBlock"]:has(input[placeholder="Nhập họ và tên cán bộ..."]) {
+                max-width: 72rem !important;
+                width: 100% !important;
+                gap: 0.5rem !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(input[placeholder="Nhập họ và tên cán bộ..."]) .stTextInput > div > div > input {
+                width: 30rem !important;
+                max-width: 30rem !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(input[placeholder="Nhập họ và tên cán bộ..."]) .stButton > button {
+                width: auto !important;
+                min-width: 4rem !important;
+                max-width: 6rem !important;
+                padding: 0.2rem 0.6rem !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
         with st.container():
-            fu_c1, fu_c2, fu_c3, fu_c4 = st.columns([4, 1, 1, 1])
+            fu_c1, fu_c2, fu_c3, fu_c4 = st.columns([9, 1, 1, 1])
             with fu_c1:
-                fullname_input = st.text_input("Nhập họ tên cán bộ cần thao tác", key="salary_fullname_input", placeholder="Nhập họ và tên cán bộ...")
+                fullname_input = st.text_input(
+                    "",
+                    key="salary_fullname_input",
+                    placeholder="Nhập họ và tên cán bộ...",
+                    label_visibility="collapsed",
+                )
             with fu_c2:
                 if st.button("📄", key="btn_table_view_full", help="Xem chi tiết lương của cán bộ này"):
                     matched_uid = None
@@ -427,7 +455,7 @@ def render_salary_management_page(ctx):
             rec = users_with_salary[view_uid]
             ho_ten = rec.get("ho_va_ten", view_uid)
             latest = latest_map.get(view_uid, {})
-            with st.popover(f"📄 Chi tiet luong: {ho_ten}", use_container_width=True):
+            with st.expander(f"📄 Chi tiet luong: {ho_ten}", expanded=True):
                 st.markdown(f"### 👤 {ho_ten} (@{view_uid})")
                 st.markdown(f"**Phong:** {rec.get('don_vi_cong_tac_phong', '') or '—'}")
                 st.markdown("**Thong tin luong gan nhat (chi xem):**")
@@ -633,7 +661,7 @@ def render_salary_management_page(ctx):
         rec = users_with_salary[edit_uid]
         ho_ten = rec.get("ho_va_ten", edit_uid)
         latest = latest_map.get(edit_uid, {})
-        with st.popover(f"✏️ Chinh sua bien dong: {ho_ten}", use_container_width=True):
+        with st.expander(f"✏️ Chinh sua bien dong: {ho_ten}", expanded=True):
             st.markdown(f"### ✏️ Chinh sua thong tin luong: {ho_ten} (@{edit_uid})")
             st.caption("Sua gia tri tung truong. Neu co thay doi, nut 'Luu' se bat de bo sung bien dong moi.")
             tmp_key = f"tmp_edit_{edit_uid}"
