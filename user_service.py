@@ -41,7 +41,7 @@ def load_auth_config():
                 "own_profile": None,
                 "role": "admin",
                 "allowed_tools": ["workspace", "knowledge", "form_batch"],
-            },
+            }
         }}
         save_json_to_db("auth_config", cfg)
     for u, r in cfg.get("users", {}).items():
@@ -90,6 +90,7 @@ def create_user(u, pw):
     c["users"][u] = {
         "password_hash": hash_password(pw),
         "own_profile": u,
+        "salary_profile_id": u,
         "role": "user",
         "allowed_tools": [],
     }
@@ -97,43 +98,40 @@ def create_user(u, pw):
     return True, "Đăng ký thành công! Hãy nạp dữ liệu ở mục Setting."
 
 
-def admin_create_user(u, pw, role, own_prof=None, allowed_tools=None, salary_link=None, tax_profile=None):
+def admin_create_user(u, pw, role, own_prof=None, allowed_tools=None, salary_profile_id=None):
     c = load_auth_config()
     if u in c["users"]:
         return False, "Tên đăng nhập đã tồn tại."
+    # salary_profile_id luôn = username (key trong salary_profiles)
+    sp_id = salary_profile_id if salary_profile_id else u
     c["users"][u] = {
         "password_hash": hash_password(pw),
         "own_profile": own_prof if own_prof else (u if role == "user" else None),
-        "tax_profile": tax_profile if tax_profile else None,
+        "salary_profile_id": sp_id,
         "role": role,
         "allowed_tools": allowed_tools or [],
-        "salary_link": salary_link if salary_link else None,
     }
     save_auth_config(c)
-    if salary_link:
-        create_salary_entry_for_user(u, ho_va_ten="", don_vi_cong_tac_phong="")
     if c["users"][u]["own_profile"] and load_user_profile(c["users"][u]["own_profile"]):
         from name_mapping import sync_name_mapping
         sync_name_mapping([c["users"][u]["own_profile"]])
     return True, f"Đã tạo user '{u}' (role '{role}')."
 
 
-def admin_update_user(target, new_role, new_own, new_tools=None, salary_link=None, tax_profile=None):
+def admin_update_user(target, new_role, new_own, new_tools=None, salary_profile_id=None):
     c = load_auth_config()
     if target not in c["users"]:
         return False, "Không tìm thấy user."
     rec = c["users"][target]
     rec["role"] = new_role
     rec["own_profile"] = new_own if new_own else (target if new_role == "user" else None)
-    rec["tax_profile"] = tax_profile if tax_profile else None
+    # salary_profile_id luôn = username (target)
+    rec["salary_profile_id"] = salary_profile_id if salary_profile_id else target
     if new_tools is not None:
         rec["allowed_tools"] = new_tools
-    if salary_link is not None:
-        rec["salary_link"] = salary_link if salary_link else None
     save_auth_config(c)
-    # Dong bo vao salary_profiles neu co salary_link
-    if salary_link:
-        sync_user_to_salary(target, c["users"][target])
+    # Dong bo vao salary_profiles (key = username)
+    sync_user_to_salary(target, c["users"][target])
     return True, f"Đã cập nhật phân quyền cho '{target}'."
 
 
@@ -192,7 +190,7 @@ def _resolve_salary_key(profiles: dict, current_user: str, role: str, target_nam
     - Neu role admin/manager: tra ve key chinh xac target_name (neu co).
     - Neu role user: chi cho phep neu target_name khop voi current_user
       (so sanh theo username hoac ho_va_ten trong entry, hoac qua profile cua user,
-       hoac qua salary_link neu co).
+       hoac qua salary_profile_id neu co).
     Tra ve (key_duoc_chon, entry_hoac_None, loi_hoac_None)."""
     if target_name not in profiles:
         # Thu tim theo ho_va_ten trong entry neu target_name khong chinh xac key
@@ -228,18 +226,18 @@ def _resolve_salary_key(profiles: dict, current_user: str, role: str, target_nam
         except Exception:
             pass
 
-    # Fallback 2: su dung salary_link neu co trong user record
+    # Fallback 2: su dung salary_profile_id neu co trong user record
     if not is_self and user_record:
-        salary_link = user_record.get("salary_link")
-        if salary_link:
-            if _normalize_key(salary_link) == _normalize_key(target_name):
+        spid = user_record.get("salary_profile_id")
+        if spid:
+            if _normalize_key(spid) == _normalize_key(target_name):
                 is_self = True
-            elif salary_link in profiles:
-                # salary_link la key trong salary_profiles, kiem tra entry ho_va_ten
-                link_ho_ten = profiles[salary_link].get("ho_va_ten", "").strip()
+            elif spid in profiles:
+                # salary_profile_id la key trong salary_profiles, kiem tra entry ho_va_ten
+                link_ho_ten = profiles[spid].get("ho_va_ten", "").strip()
                 if _normalize_key(link_ho_ten) == _normalize_key(target_name):
                     is_self = True
-                    target_name = salary_link
+                    target_name = spid
 
     if not is_self:
         return target_name, None, "Ban chi duoc xem luong cua chinh minh."
@@ -258,7 +256,7 @@ def tra_cuu_luong(ten_nguoi_can_xem: str, current_user: str, role: str,
         ten_nguoi_can_xem: ten hoac key can tra cuu.
         current_user: ten user dang goi.
         role: vai tro cua user dang goi (admin/manager/user).
-        user_record: record cua user dang goi (co the chua salary_link).
+        user_record: record cua user dang goi (co the chua salary_profile_id).
         fields: danh sach can du lieu can tra cuu (neu preset la None).
         preset: "all" | "tao bang luong" | "bien dong luong" | "lan len luong gan nhat"
                 Neu co preset se bo qua fields va tra ve theo preset.
@@ -354,7 +352,7 @@ def lay_ds_key_co_luong() -> list[str]:
 def get_username_from_salary_key(key: str) -> str | None:
     """Tra ve username cua user lien ket voi key salary_profiles.
 
-    - Neu user co salary_link == key, tra ve username do.
+    - Neu user co salary_profile_id == key, tra ve username do.
     - Neu user co own_profile khop voi ho_va_ten trong entry salary_profiles, tra ve username do.
     - Tra ve None neu khong tim thay.
     """
@@ -363,12 +361,12 @@ def get_username_from_salary_key(key: str) -> str | None:
     auth_cfg = load_auth_config() or {}
     users = auth_cfg.get("users", {})
 
-    # 1) Tim bang salary_link (chuong trinh ưu tien)
+    # 1) Tim bang salary_profile_id (chuong trinh ưu tien)
     for uname, rec in users.items():
-        if rec.get("salary_link") == key:
+        if rec.get("salary_profile_id") == key:
             return uname
 
-    # 2) Tim bang own_profile khop ho_va_ten cua entry salary_profiles
+    # 2) Tim bang own_profile khop voi ho_va_ten trong entry salary_profiles
     profiles = get_salary_profiles()
     entry = profiles.get(key, {})
     entry_ho_ten = entry.get("ho_va_ten", "").strip()
@@ -388,73 +386,55 @@ def get_username_from_salary_key(key: str) -> str | None:
 # ============================================================
 def sync_user_to_salary(username: str, user_record: dict) -> bool:
     """Dong bo user vao salary_profiles.
-    - Key = username (uu tien so 1).
-    - Neu salary_link trong user_record la key cu (fullname), doi key thanh username (khong xoa du lieu cu).
-    - Cop nhat ho_va_ten, don_vi_cong_tac_phong (lay tu user_profile, tach khoang 'phong').
-    - Bo email, don_vi_cong_tac, ngay_nhan_luong_dau_tien.
+    - Key = username (luon).
+    - Cap nhat ho_va_ten, don_vi_cong_tac_phong/vien/tong (lay tu user_profile, tach khoang ',').
+    - Chi dong bo email neu entry chua co email.
     - Giu nguyen lich_su_bien_dong_luong.
     Tra ve True neu da tao/cap nhat thanh cong, False neu bo qua.
     """
-    salary_link = user_record.get("salary_link")
-    if not salary_link:
-        return False  # User chua duoc lien ket voi bang luong nao
-
     profiles = get_salary_profiles()
 
-    # Lay don_vi_cong_tac_phong tu user_profile (chuoi "phong, vien, tong")
-    don_vi_raw = user_record.get("don_vi_cong_tac", "") or ""
+    # Lay don_vi_cong_tac tu ho so ca nhan (load_user_profile), neu khong co lay tu auth_config
+    profile_key = user_record.get("own_profile", username) or username
+    prof_data = load_user_profile(profile_key) or {}
+    don_vi_raw = prof_data.get("don_vi_cong_tac", "") or user_record.get("don_vi_cong_tac", "") or ""
     don_vi_phong = ""
+    don_vi_vien = ""
+    don_vi_tong = ""
     if don_vi_raw:
         parts = [p.strip() for p in str(don_vi_raw).split(",")]
-        don_vi_phong = parts[0] if parts else ""
+        don_vi_phong = parts[0] if len(parts) > 0 else ""
+        don_vi_vien = parts[1] if len(parts) > 1 else ""
+        don_vi_tong = parts[2] if len(parts) > 2 else ""
 
     ho_va_ten = user_record.get("own_profile", username) or username
     now_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
-    if salary_link != username and salary_link in profiles:
-        # Doi key tu fullname (salary_link) thanh username, khong xoa du lieu cu
-        entry = profiles.pop(salary_link)
-        entry["ho_va_ten"] = ho_va_ten
-        entry["don_vi_cong_tac_phong"] = don_vi_phong
-        entry["cap_nhat_luc"] = now_str
-        entry.pop("email", None)
-        entry.pop("don_vi_cong_tac", None)
-        entry.pop("ngay_nhan_luong_dau_tien", None)
-        profiles[username] = entry
-    elif username not in profiles:
+    if username not in profiles:
         # Tao entry moi
-        profiles[username] = {
+        user_email = user_record.get("email", "") or ""
+        new_entry = {
             "ho_va_ten": ho_va_ten,
             "don_vi_cong_tac_phong": don_vi_phong,
+            "don_vi_cong_tac_vien": don_vi_vien,
+            "don_vi_cong_tac_tong": don_vi_tong,
             "cap_nhat_luc": now_str,
             "lich_su_bien_dong_luong": [],
         }
+        if user_email:
+            new_entry["email"] = user_email
+        profiles[username] = new_entry
     else:
         # Cap nhat entry ton tai
         entry = profiles[username]
         entry["ho_va_ten"] = ho_va_ten
         entry["don_vi_cong_tac_phong"] = don_vi_phong
+        entry["don_vi_cong_tac_vien"] = don_vi_vien
+        entry["don_vi_cong_tac_tong"] = don_vi_tong
         entry["cap_nhat_luc"] = now_str
+        # Chi dong bo email neu entry chua co email
+        user_email = user_record.get("email", "") or ""
+        if user_email and not entry.get("email"):
+            entry["email"] = user_email
 
-    return save_json_to_db("salary_profiles", profiles)
-
-
-def create_salary_entry_for_user(username: str, ho_va_ten: str = "", don_vi_cong_tac_phong: str = "") -> bool:
-    """Tao entry trong salary_profiles cho user moi (dung khi admin tao user).
-    - Key = username (uu tien so 1).
-    - don_vi_cong_tac_phong bat buoc (neu trong -> tra ve False).
-    - Bo email, don_vi_cong_tac, ngay_nhan_luong_dau_tien.
-    Tra ve True neu da tao, False neu da co hoac thieu don vi phong.
-    """
-    profiles = get_salary_profiles()
-    if username in profiles:
-        return True  # Da co, khong tao lai
-    if not don_vi_cong_tac_phong:
-        return False  # Don vi cong tac phong bat buoc
-    profiles[username] = {
-        "ho_va_ten": ho_va_ten or username,
-        "don_vi_cong_tac_phong": don_vi_cong_tac_phong,
-        "cap_nhat_luc": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-        "lich_su_bien_dong_luong": [],
-    }
     return save_json_to_db("salary_profiles", profiles)

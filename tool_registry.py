@@ -142,13 +142,85 @@ def _thong_ke_bai_bao_impl(args, ctx):
         if unit and _norm(unit) not in don_vi and _norm(unit) not in don_vi_con:
             continue
 
-        pubs = prof.get("bai_bao_chuan_scopus", [])
-        if not isinstance(pubs, list):
-            pubs = prof.get("cong_bo", [])
-        if not isinstance(pubs, list):
-            pubs = prof.get("bai_bao", [])
-        if not isinstance(pubs, list):
-            pubs = []
+        # Ưu tiên đọc từ trường mới bai_bao_cong_bo (đã chuẩn hóa từ file CV)
+        pubs_raw = prof.get("bai_bao_cong_bo", [])
+        if not isinstance(pubs_raw, list):
+            pubs_raw = []
+        use_new_structure = bool(pubs_raw)
+
+        if not use_new_structure:
+            # Fallback sang các trường cũ nếu không có bai_bao_cong_bo
+            pubs_raw = prof.get("bai_bao_chuan_scopus", [])
+            if not isinstance(pubs_raw, list):
+                pubs_raw = prof.get("cong_bo", [])
+            if not isinstance(pubs_raw, list):
+                pubs_raw = prof.get("bai_bao", [])
+            if not isinstance(pubs_raw, list):
+                pubs_raw = []
+
+        def _parse_phan_loai(phan_loai):
+            """Tách chuỗi phan_loai (vd 'Scopus Q1', 'ISI/SCI-EE Q1') thành index_type và quartile."""
+            pl = str(phan_loai or "").strip()
+            pl_upper = pl.upper()
+            index_type = ""
+            quartile = ""
+            if "SCOPUS" in pl_upper:
+                index_type = "Scopus"
+            elif "ISI" in pl_upper or "SCI" in pl_upper:
+                index_type = "ISI/SCI-EE"
+            elif "HỘI NGHỊ" in pl_upper or "HOI NGHI" in pl_upper:
+                index_type = "Hội nghị"
+            elif "TẠP CHÍ TRONG NƯỚC" in pl_upper or "TAP CHI TRONG NUOC" in pl_upper:
+                index_type = "Tạp chí trong nước"
+            else:
+                index_type = "Khác"
+            for q in ("Q1", "Q2", "Q3", "Q4"):
+                if q in pl_upper:
+                    quartile = q
+                    break
+            return index_type, quartile
+
+        pubs = []
+        for p in pubs_raw:
+            if not isinstance(p, dict):
+                continue
+            if use_new_structure:
+                phan_loai = str(p.get("phan_loai", "")).strip()
+                index_type, quartile = _parse_phan_loai(phan_loai)
+                if p.get("tac_gia_dau"):
+                    author_role = "Tác giả đầu"
+                    authors = "Tác giả đầu"
+                elif p.get("tac_gia_lien_he"):
+                    author_role = "Tác giả liên hệ"
+                    authors = "Tác giả liên hệ"
+                elif p.get("dong_tac_gia"):
+                    author_role = "Đồng tác giả"
+                    authors = "Đồng tác giả"
+                else:
+                    author_role = str(p.get("vai_tro", "")).strip()
+                    authors = author_role
+                try:
+                    y = int(p.get("nam_cong_bo") or 0)
+                except Exception:
+                    y = 0
+                pubs.append({
+                    "title": str(p.get("ten_cong_trinh", "")).strip(),
+                    "authors": authors,
+                    "author_role": author_role,
+                    "source_title": str(p.get("noi_cong_bo", "")).strip(),
+                    "year": str(y),
+                    "doi": str(p.get("doi", "")).strip(),
+                    "issn": str(p.get("issn", "")).strip(),
+                    "isbn": "",
+                    "index_type": index_type,
+                    "quartile": quartile,
+                    "document_type": str(p.get("loai_cong_trinh", "")).strip(),
+                    "volume": "",
+                    "issue": "",
+                    "page_range": "",
+                })
+            else:
+                pubs.append(p)
 
         for p in pubs:
             if not isinstance(p, dict):

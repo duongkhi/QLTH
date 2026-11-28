@@ -192,6 +192,150 @@ def _send_salary_email(to_email: str, subject: str, body: str) -> bool:
         return True
 
 
+def _fmt_num(val) -> str:
+    if val is None or val == "":
+        return "—"
+    try:
+        return f"{float(val):,.0f}"
+    except Exception:
+        return str(val)
+
+
+def _fmt_he_so(val) -> str:
+    if val is None or val == "":
+        return "—"
+    try:
+        return f"{float(val):,.2f}"
+    except Exception:
+        return str(val)
+
+
+def _build_notice_detail(ho_ten: str, thang: str, nam: str, nguon_luong: str, latest: dict) -> str:
+    """Tao noi dung thong bao luong chi tiet theo 3 loai: Bien che / Hop dong / Khac."""
+    he_so = latest.get("he_so_luong", "")
+    tien_luong = latest.get("tien_luong", "")
+    tong_cong = latest.get("tong_cong", "")
+    bac_luong = latest.get("bac_luong", "")
+    luong_cb = latest.get("luong_cb", "")
+    ghi_chu = latest.get("ghi_chu", "")
+    ngay_hl = latest.get("ngay_hieu_luc", "")
+    qd_so = latest.get("quyet_dinh_so", "")
+
+    he_so_vk = latest.get("he_so_vuot_khung", "")
+    hs_dh_vt = latest.get("he_so_doc_hai_theo_vi_tri", "")
+    hs_dh_tien = latest.get("he_so_doc_hai_tien", "")
+    pc_ld = latest.get("pc_ld", "")
+    doc_hai_luong = latest.get("doc_hai_theo_luong", "")
+    doc_hai_tien = latest.get("doc_hai_tien", "")
+    truy_linh = latest.get("truy_linh", "")
+    bhiem = latest.get("bhiem_10_5", "")
+    truy_thu = latest.get("truy_thu", "")
+    tien_thue = latest.get("tien_tinh_thue", "")
+    tien_phu_cap_luong = latest.get("tien_phu_cap_luong", "")
+    tien_phu_cap_ctp = latest.get("tien_phu_cap_ctp", "")
+
+    header = f"""THÔNG BÁO LƯƠNG THÁNG {thang}/{nam}
+
+Kính gửi Ông/Bà: {ho_ten},
+
+Tại đây là thông báo chi tiết tiền lương tháng {thang}/{nam} của quý vị.
+
+"""
+
+    # ---------- LOAI BIEN CHE: bang 13 muc giong mau ----------
+    if nguon_luong == "Bien che":
+        body = header
+        body += """| STT | NỘI DUNG | SỐ LIỆU TƯƠNG ỨNG |
+|-----|----------|-------------------|
+| (1) | Hệ số lương | {hsl} |
+| (2) | Hệ số phụ cấp lành đáo | {pcld} |
+| (3) | Vượt khung | {vk} |
+| (4) | Hệ số vượt khung = (1) × (3) | {hsvk} |
+| (5) | Phần trăm lương đơn vị | 100% |
+| (6) | Tiền lương = [(1) + (2) + (4)] × (5) × 2.340.000 | {tien_luong} |
+| (7) | Hệ số độc hại theo lương | {hsdl} |
+| (8) | Độc hại theo lương = [(1)+(4)]×(7)×2.340.000 | {dh_luong} |
+| (9) | Hệ số độc hại bảng tiền | {hsdbt} |
+| (10)| Độc hại bảng tiền = (9) × 2.340.000 | {dh_tien} |
+| (11)| Tự lĩnh | {tl} |
+| (12)| Trừ tiền BHXH = [(1) + (2) + (4)] × 2.340.000 × 10,5% | {bh} |
+| (13)| Trừ thu | {tt} |
+| | **Tổng số tiền được nhận** = [(6)+(8)+(10)+(11)-(12)-(13)] | **{tong}** |
+
+""".format(
+            hsl=_fmt_he_so(he_so),
+            pcld=_fmt_num(pc_ld),
+            vk=_fmt_num(he_so_vk),
+            hsvk=_fmt_he_so(he_so_vk),
+            tien_luong=_fmt_num(tien_luong),
+            hsdl=_fmt_num(hs_dh_vt),
+            dh_luong=_fmt_num(doc_hai_luong),
+            hsdbt=_fmt_num(hs_dh_tien),
+            dh_tien=_fmt_num(doc_hai_tien),
+            tl=_fmt_num(truy_linh),
+            bh=_fmt_num(bhiem),
+            tt=_fmt_num(truy_thu),
+            tong=_fmt_num(tong_cong),
+        )
+    # ---------- LOAI HOP DONG: bang 7 muc giong mau ----------
+    elif nguon_luong == "Hop dong":
+        body = header
+        body += """| STT | NỘI DUNG | SỐ LIỆU TƯƠNG ỨNG |
+|-----|----------|-------------------|
+| (1) | Hệ số lương | {hsl} |
+| (2) | Tiền phụ cấp lương | {tpl} |
+| (3) | Tiền phụ cấp CTP | {ctp} |
+| (4) | Tiền Lương = (1) × 2.340.000 + (2) | {tien_luong} |
+| (5) | Trừ tự lĩnh | {tl} |
+| (6) | Trừ tiền BHXH = 10,5% × 2.340.000 × (1) | {bh} |
+| (7) | Trừ thu | {tt} |
+| | **Tổng số tiền được nhận: (2)+(3)+(4)-(5)-(6)-(7)** | **{tong}** |
+
+""".format(
+            hsl=_fmt_he_so(he_so),
+            tpl=_fmt_num(tien_phu_cap_luong),
+            ctp=_fmt_num(tien_phu_cap_ctp),
+            tien_luong=_fmt_num(tien_luong),
+            tl=_fmt_num(truy_linh),
+            bh=_fmt_num(bhiem),
+            tt=_fmt_num(truy_thu),
+            tong=_fmt_num(tong_cong),
+        )
+    # ---------- LOAI KHAC: bang don gian ----------
+    else:
+        body = header
+        body += """| STT | NỘI DUNG | SỐ LIỆU TƯƠNG ỨNG |
+|-----|----------|-------------------|
+| (1) | Hệ số lương | {hsl} |
+| (2) | Tiền lương | {tien_luong} |
+| (3) | Phụ cấp | {pc} |
+| (4) | Tổng thực lĩnh | {tong} |
+
+""".format(
+            hsl=_fmt_he_so(he_so),
+            tien_luong=_fmt_num(tien_luong),
+            pc=_fmt_num(pc_ld),
+            tong=_fmt_num(tong_cong),
+        )
+
+    # ---------- Phan duoi bang (Luan ly) ----------
+    body += """Lương lý: Theo quy định lương hiện hành của đơn vị.
+Thông báo này được hệ thống tạo tự động từ dữ liệu lương tháng {thang}/{nam}.
+Vui lòng kiểm tra và liên hệ Phòng Kế toán nếu có thắc mắc.
+
+Trân trọng,
+Phòng Kế toán - Viện Vật lý
+""".format(thang=thang, nam=nam)
+
+    if ghi_chu:
+        body += f"\nGhi chú: {ghi_chu}\n"
+
+    if ngay_hl or qd_so:
+        body += f"\nNgày hiệu lực: {ngay_hl or '—'} | Số quyết định: {qd_so or '—'}\n"
+
+    return body
+
+
 def _build_notice_body(ho_ten: str, thang: str, nam: str, loai: str, latest: dict) -> str:
     he_so = latest.get("he_so_luong", "")
     tien_luong = latest.get("tien_luong", "")
@@ -509,52 +653,113 @@ def render_salary_management_page(ctx):
                 view_uid = uid_pick
                 st.session_state["salary_multi_match"] = None
 
-        # ---------- CHON DINH DANG BANG LUONG ----------
-        sal_fmt_col1, sal_fmt_col2 = st.columns([3, 1])
-        with sal_fmt_col1:
-            st.markdown("---")
-            st.caption("Bảng lương mặc định: **Bien che**. Chọn định dạng nếu cần:")
-        with sal_fmt_col2:
-            loai_luong = st.selectbox(
-                "Định dạng",
-                options=["Bien che", "Hop dong", "Khac"],
-                index=0,
-                key="salary_view_format",
-                label_visibility="collapsed",
-            )
-
-        # ---------- HIEN BANG LUONG CHI TIET ----------
+        # ---------- HIEN THONG BAO LUONG CHI TIET (giong mau gui di) ----------
         if view_uid and view_uid in users_with_salary:
             rec = users_with_salary[view_uid]
             ho_ten = rec.get("ho_va_ten", view_uid)
             latest = latest_map.get(view_uid, {})
-            # Ap dinh da chon vao latest (de hien thi / edit)
-            latest["loai"] = loai_luong
-            with st.expander(f"📄 Chi tiết lương: {ho_ten}", expanded=True):
-                st.markdown(f"### 👤 {ho_ten} (@{view_uid})")
-                st.markdown(f"**Phòng:** {rec.get('don_vi_cong_tac_phong', '') or '—'}")
-                st.markdown(f"**Định dạng lương:** {loai_luong}")
-                st.markdown("**Thông tin lương gần nhất:**")
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    st.markdown(f"- Năm: {latest.get('nam', '') or '—'}")
-                    st.markdown(f"- Tháng: {latest.get('thang', '') or '—'}")
-                    st.markdown(f"- Ngày hiệu lực: {latest.get('ngay_hieu_luc', '') or '—'}")
-                    st.markdown(f"- Số quyết định: {latest.get('quyet_dinh_so', '') or '—'}")
-                    st.markdown(f"- Bậc lương: {latest.get('bac_luong', '') or '—'}")
-                    st.markdown(f"- Hệ số lương: {latest.get('he_so_luong', '') or '—'}")
-                    st.markdown(f"- Lương cơ bản: {latest.get('luong_cb', '') or '—'}")
-                    st.markdown(f"- Phụ cấp LD: {latest.get('pc_ld', '') or '—'}")
-                with col_b:
-                    st.markdown(f"- Hệ số vượt khung: {latest.get('he_so_vuot_khung', '') or '—'}")
-                    st.markdown(f"- Hệ số độc hại (vt): {latest.get('he_so_doc_hai_theo_vi_tri', '') or '—'}")
-                    st.markdown(f"- Hệ số độc hại (tiền): {latest.get('he_so_doc_hai_tien', '') or '—'}")
-                    st.markdown(f"- Tổng cộng: {latest.get('tong_cong', '') or '—'}")
-                    st.markdown(f"- Tiền lương: {latest.get('tien_luong', '') or '—'}")
-                    st.markdown(f"- Phụ cấp: {latest.get('phu_cap', '') or '—'}")
-                    st.markdown(f"- Ghi chú: {latest.get('ghi_chu', '') or '—'}")
-                if latest.get("ly_do_bien_dong"):
-                    st.markdown(f"- Lý do: {latest['ly_do_bien_dong']}")
+
+            # Xac nguon luong: lay tu record cua user hoac tu latest
+            nguon_luong = rec.get("nguon_luong") or latest.get("nguon_luong") or latest.get("loai") or "Bien che"
+            thang = str(latest.get("thang", ""))
+            nam = str(latest.get("nam", ""))
+
+            st.markdown("---")
+            st.markdown(f"### 📄 Thong bao luong: {ho_ten} (@{view_uid})")
+            st.markdown(f"**Phòng:** {rec.get('don_vi_cong_tac_phong', '') or '—'}")
+            st.markdown(f"**Nguồn lương:** {nguon_luong}")
+            st.markdown(f"**Tháng/Năm:** {thang}/{nam}")
+
+            notice_detail = _build_notice_detail(ho_ten, thang, nam, nguon_luong, latest)
+            st.text_area("Noi dung thong bao luong", value=notice_detail, height=420, key=f"notice_detail_{view_uid}")
+
+            # Nut chinh sua bien dong luong o day cung
+            st.markdown("---")
+            st.markdown("#### ✏️ Chỉnh sửa biến động lương")
+            tmp_key = f"tmp_edit_{view_uid}"
+            if tmp_key not in st.session_state:
+                st.session_state[tmp_key] = dict(latest)
+            tmp = st.session_state[tmp_key]
+            e_c1, e_c2 = st.columns(2)
+            with e_c1:
+                tmp["nam"] = st.number_input("Nam", min_value=2000, max_value=2100, value=int(tmp.get("nam") or datetime.now().year), key=f"e_nam_{view_uid}")
+                tmp["thang"] = st.number_input("Thang", min_value=1, max_value=12, value=int(tmp.get("thang") or datetime.now().month), key=f"e_thang_{view_uid}")
+                tmp["ngay_hieu_luc"] = st.text_input("Ngay hieu luc (dd/mm/yyyy)", value=tmp.get("ngay_hieu_luc", ""), key=f"e_ngay_{view_uid}")
+                tmp["quyet_dinh_so"] = st.text_input("So quyet dinh", value=tmp.get("quyet_dinh_so", ""), key=f"e_qd_{view_uid}")
+                tmp["bac_luong"] = st.text_input("Bac luong", value=tmp.get("bac_luong", ""), key=f"e_bac_{view_uid}")
+                tmp["he_so_luong"] = st.text_input("He so luong", value=tmp.get("he_so_luong", ""), key=f"e_hsl_{view_uid}")
+                tmp["luong_cb"] = st.text_input("Luong co ban", value=tmp.get("luong_cb", ""), key=f"e_lcb_{view_uid}")
+                tmp["pc_ld"] = st.text_input("Phu cap LD", value=tmp.get("pc_ld", ""), key=f"e_pc_{view_uid}")
+            with e_c2:
+                tmp["tien_luong"] = st.text_input("Tien luong", value=tmp.get("tien_luong", ""), key=f"e_tl_{view_uid}")
+                tmp["phu_cap"] = st.text_input("Phu cap", value=tmp.get("phu_cap", ""), key=f"e_pc2_{view_uid}")
+                tmp["tong_cong"] = st.text_input("Tong cong", value=tmp.get("tong_cong", ""), key=f"e_tc_{view_uid}")
+                tmp["he_so_vuot_khung"] = st.text_input("He so vuot khung", value=tmp.get("he_so_vuot_khung", ""), key=f"e_vk_{view_uid}")
+                tmp["he_so_doc_hai_theo_vi_tri"] = st.text_input("He so doc hai (vt)", value=tmp.get("he_so_doc_hai_theo_vi_tri", ""), key=f"e_dh1_{view_uid}")
+                tmp["he_so_doc_hai_tien"] = st.text_input("He so doc hai (tien)", value=tmp.get("he_so_doc_hai_tien", ""), key=f"e_dh2_{view_uid}")
+            tmp["doc_hai_theo_luong"] = st.text_input("Doc hai theo luong", value=tmp.get("doc_hai_theo_luong", ""), key=f"e_dh3_{view_uid}")
+            tmp["doc_hai_tien"] = st.text_input("Doc hai tien", value=tmp.get("doc_hai_tien", ""), key=f"e_dh4_{view_uid}")
+            tmp["truy_linh"] = st.text_input("Truy linh", value=tmp.get("truy_linh", ""), key=f"e_tl1_{view_uid}")
+            tmp["bhiem_10_5"] = st.text_input("BH 10,5%", value=tmp.get("bhiem_10_5", ""), key=f"e_bh_{view_uid}")
+            tmp["truy_thu"] = st.text_input("Truy thu", value=tmp.get("truy_thu", ""), key=f"e_tt_{view_uid}")
+            tmp["tien_tinh_thue"] = st.text_input("Tien tinh thue", value=tmp.get("tien_tinh_thue", ""), key=f"e_tt2_{view_uid}")
+            tmp["ghi_chu"] = st.text_area("Ghi chu", value=tmp.get("ghi_chu", ""), key=f"e_ghichu_{view_uid}")
+            tmp["ly_do_bien_dong"] = st.text_area("Ly do bien dong (bat buoc)", value=tmp.get("ly_do_bien_dong", ""), key=f"e_lydo_{view_uid}")
+            da_thay_doi = False
+            for k, v in latest.items():
+                if str(tmp.get(k, "")) != str(v or ""):
+                    da_thay_doi = True
+                    break
+            col_save, col_cancel = st.columns(2)
+            with col_save:
+                if st.button("💾 Luu bien dong", type="primary", disabled=not da_thay_doi or not tmp.get("ly_do_bien_dong"), key=f"btn_save_edit_{view_uid}", width='stretch'):
+                    if not tmp.get("ly_do_bien_dong"):
+                        st.error("❌ Vui long nhap ly do bien dong.")
+                    else:
+                        moi = {
+                            "nam": int(tmp.get("nam") or datetime.now().year),
+                            "thang": int(tmp.get("thang") or datetime.now().month),
+                            "ngay_hieu_luc": tmp.get("ngay_hieu_luc", ""),
+                            "quyet_dinh_so": tmp.get("quyet_dinh_so", ""),
+                            "ban_cung_luu_o_dau": tmp.get("ban_cung_luu_o_dau", ""),
+                            "bac_luong": tmp.get("bac_luong", ""),
+                            "ly_do_bien_dong": tmp.get("ly_do_bien_dong", ""),
+                            "stt": tmp.get("stt", ""),
+                            "pc_ld": tmp.get("pc_ld", ""),
+                            "pc_ld_bang_tien": tmp.get("pc_ld_bang_tien", ""),
+                            "he_so_luong": tmp.get("he_so_luong", ""),
+                            "luong_he_so": tmp.get("luong_he_so", ""),
+                            "vuot_khung": tmp.get("vuot_khung", ""),
+                            "he_so_vuot_khung": tmp.get("he_so_vuot_khung", ""),
+                            "vuot_khung_bang_tien": tmp.get("vuot_khung_bang_tien", ""),
+                            "phan_tram_huong": tmp.get("phan_tram_huong", ""),
+                            "luong_cb": tmp.get("luong_cb", ""),
+                            "he_so_doc_hai_theo_vi_tri": tmp.get("he_so_doc_hai_theo_vi_tri", ""),
+                            "he_so_doc_hai_tien": tmp.get("he_so_doc_hai_tien", ""),
+                            "doc_hai_theo_luong": tmp.get("doc_hai_theo_luong", ""),
+                            "doc_hai_tien": tmp.get("doc_hai_tien", ""),
+                            "truy_linh": tmp.get("truy_linh", ""),
+                            "bhiem_10_5": tmp.get("bhiem_10_5", ""),
+                            "truy_thu": tmp.get("truy_thu", ""),
+                            "tong_cong": tmp.get("tong_cong", ""),
+                            "ghi_chu": tmp.get("ghi_chu", ""),
+                            "tien_tinh_thue": tmp.get("tien_tinh_thue", ""),
+                        }
+                        rec["lich_su_bien_dong_luong"].append(moi)
+                        rec["lich_su_bien_dong_luong"] = sorted(rec["lich_su_bien_dong_luong"], key=lambda b: (b.get("nam", 0), b.get("thang", 0)))
+                        data[view_uid] = rec
+                        if _save_salary_data(data):
+                            st.success("✅ Da luu bien dong luong moi.")
+                            st.session_state[tmp_key] = {}
+                            st.session_state["salary_view_uid"] = None
+                            st.rerun()
+                        else:
+                            st.error("❌ Khong luu duoc du lieu.")
+            with col_cancel:
+                if st.button("❌ Huy", key=f"btn_cancel_edit_{view_uid}", width='stretch'):
+                    st.session_state[tmp_key] = {}
+                    st.session_state["salary_view_uid"] = None
+                    st.rerun()
 
     # =========================================================
     # TAB THÔNG BÁO LƯƠNG
@@ -730,101 +935,5 @@ def render_salary_management_page(ctx):
                 st.warning("Khong tim thay can bo nao khop voi tu khoa tim kiem.")
             else:
                 st.info("Nhap username hoac fullname vao o tim kiem o tren de tra cuu va tao thong bao luong.")
-
-    # =========================================================
-    # SUA BIEN DONG LUONG (popover)
-    # =========================================================
-    edit_uid = st.session_state.get("salary_edit_uid")
-    if edit_uid and edit_uid in users_with_salary:
-        rec = users_with_salary[edit_uid]
-        ho_ten = rec.get("ho_va_ten", edit_uid)
-        latest = latest_map.get(edit_uid, {})
-        with st.expander(f"✏️ Chinh sua bien dong: {ho_ten}", expanded=True):
-            st.markdown(f"### ✏️ Chinh sua thong tin luong: {ho_ten} (@{edit_uid})")
-            st.caption("Sua gia tri tung truong. Neu co thay doi, nut 'Luu' se bat de bo sung bien dong moi.")
-            tmp_key = f"tmp_edit_{edit_uid}"
-            if tmp_key not in st.session_state:
-                st.session_state[tmp_key] = dict(latest)
-            tmp = st.session_state[tmp_key]
-            e_c1, e_c2 = st.columns(2)
-            with e_c1:
-                tmp["nam"] = st.number_input("Nam", min_value=2000, max_value=2100, value=int(tmp.get("nam") or datetime.now().year), key=f"e_nam_{edit_uid}")
-                tmp["thang"] = st.number_input("Thang", min_value=1, max_value=12, value=int(tmp.get("thang") or datetime.now().month), key=f"e_thang_{edit_uid}")
-                tmp["ngay_hieu_luc"] = st.text_input("Ngay hieu luc (dd/mm/yyyy)", value=tmp.get("ngay_hieu_luc", ""), key=f"e_ngay_{edit_uid}")
-                tmp["quyet_dinh_so"] = st.text_input("So quyet dinh", value=tmp.get("quyet_dinh_so", ""), key=f"e_qd_{edit_uid}")
-                tmp["bac_luong"] = st.text_input("Bac luong", value=tmp.get("bac_luong", ""), key=f"e_bac_{edit_uid}")
-                tmp["he_so_luong"] = st.text_input("He so luong", value=tmp.get("he_so_luong", ""), key=f"e_hsl_{edit_uid}")
-                tmp["luong_cb"] = st.text_input("Luong co ban", value=tmp.get("luong_cb", ""), key=f"e_lcb_{edit_uid}")
-            with e_c2:
-                tmp["tien_luong"] = st.text_input("Tien luong", value=tmp.get("tien_luong", ""), key=f"e_tl_{edit_uid}")
-                tmp["phu_cap"] = st.text_input("Phu cap", value=tmp.get("phu_cap", ""), key=f"e_pc_{edit_uid}")
-                tmp["tong_cong"] = st.text_input("Tong cong", value=tmp.get("tong_cong", ""), key=f"e_tc_{edit_uid}")
-                tmp["pc_ld"] = st.text_input("Phu cap LD", value=tmp.get("pc_ld", ""), key=f"e_pcld_{edit_uid}")
-                tmp["he_so_vuot_khung"] = st.text_input("He so vuot khung", value=tmp.get("he_so_vuot_khung", ""), key=f"e_vk_{edit_uid}")
-                tmp["he_so_doc_hai_theo_vi_tri"] = st.text_input("He so doc hai (vt)", value=tmp.get("he_so_doc_hai_theo_vi_tri", ""), key=f"e_dh1_{edit_uid}")
-                tmp["he_so_doc_hai_tien"] = st.text_input("He so doc hai (tien)", value=tmp.get("he_so_doc_hai_tien", ""), key=f"e_dh2_{edit_uid}")
-            tmp["doc_hai_theo_luong"] = st.text_input("Doc hai theo luong", value=tmp.get("doc_hai_theo_luong", ""), key=f"e_dh3_{edit_uid}")
-            tmp["doc_hai_tien"] = st.text_input("Doc hai tien", value=tmp.get("doc_hai_tien", ""), key=f"e_dh4_{edit_uid}")
-            tmp["truy_linh"] = st.text_input("Truy linh", value=tmp.get("truy_linh", ""), key=f"e_tl1_{edit_uid}")
-            tmp["bhiem_10_5"] = st.text_input("BH 10,5%", value=tmp.get("bhiem_10_5", ""), key=f"e_bh_{edit_uid}")
-            tmp["truy_thu"] = st.text_input("Truy thu", value=tmp.get("truy_thu", ""), key=f"e_tt_{edit_uid}")
-            tmp["tien_tinh_thue"] = st.text_input("Tien tinh thue", value=tmp.get("tien_tinh_thue", ""), key=f"e_tt2_{edit_uid}")
-            tmp["ghi_chu"] = st.text_area("Ghi chu", value=tmp.get("ghi_chu", ""), key=f"e_ghichu_{edit_uid}")
-            tmp["ly_do_bien_dong"] = st.text_area("Ly do bien dong (bat buoc)", value=tmp.get("ly_do_bien_dong", ""), key=f"e_lydo_{edit_uid}")
-            da_thay_doi = False
-            for k, v in latest.items():
-                if str(tmp.get(k, "")) != str(v or ""):
-                    da_thay_doi = True
-                    break
-            col_save, col_cancel = st.columns(2)
-            with col_save:
-                if st.button("💾 Luu bien dong", type="primary", disabled=not da_thay_doi or not tmp.get("ly_do_bien_dong"), key=f"btn_save_edit_{edit_uid}", width='stretch'):
-                    if not tmp.get("ly_do_bien_dong"):
-                        st.error("❌ Vui long nhap ly do bien dong.")
-                    else:
-                        moi = {
-                            "nam": int(tmp.get("nam") or datetime.now().year),
-                            "thang": int(tmp.get("thang") or datetime.now().month),
-                            "ngay_hieu_luc": tmp.get("ngay_hieu_luc", ""),
-                            "quyet_dinh_so": tmp.get("quyet_dinh_so", ""),
-                            "ban_cung_luu_o_dau": tmp.get("ban_cung_luu_o_dau", ""),
-                            "bac_luong": tmp.get("bac_luong", ""),
-                            "ly_do_bien_dong": tmp.get("ly_do_bien_dong", ""),
-                            "stt": tmp.get("stt", ""),
-                            "pc_ld": tmp.get("pc_ld", ""),
-                            "pc_ld_bang_tien": tmp.get("pc_ld_bang_tien", ""),
-                            "he_so_luong": tmp.get("he_so_luong", ""),
-                            "luong_he_so": tmp.get("luong_he_so", ""),
-                            "vuot_khung": tmp.get("vuot_khung", ""),
-                            "he_so_vuot_khung": tmp.get("he_so_vuot_khung", ""),
-                            "vuot_khung_bang_tien": tmp.get("vuot_khung_bang_tien", ""),
-                            "phan_tram_huong": tmp.get("phan_tram_huong", ""),
-                            "luong_cb": tmp.get("luong_cb", ""),
-                            "he_so_doc_hai_theo_vi_tri": tmp.get("he_so_doc_hai_theo_vi_tri", ""),
-                            "he_so_doc_hai_tien": tmp.get("he_so_doc_hai_tien", ""),
-                            "doc_hai_theo_luong": tmp.get("doc_hai_theo_luong", ""),
-                            "doc_hai_tien": tmp.get("doc_hai_tien", ""),
-                            "truy_linh": tmp.get("truy_linh", ""),
-                            "bhiem_10_5": tmp.get("bhiem_10_5", ""),
-                            "truy_thu": tmp.get("truy_thu", ""),
-                            "tong_cong": tmp.get("tong_cong", ""),
-                            "ghi_chu": tmp.get("ghi_chu", ""),
-                            "tien_tinh_thue": tmp.get("tien_tinh_thue", ""),
-                        }
-                        rec["lich_su_bien_dong_luong"].append(moi)
-                        rec["lich_su_bien_dong_luong"] = sorted(rec["lich_su_bien_dong_luong"], key=lambda b: (b.get("nam", 0), b.get("thang", 0)))
-                        data[edit_uid] = rec
-                        if _save_salary_data(data):
-                            st.success("✅ Da luu bien dong luong moi.")
-                            st.session_state[tmp_key] = {}
-                            st.session_state["salary_edit_uid"] = None
-                            st.rerun()
-                        else:
-                            st.error("❌ Khong luu duoc du lieu.")
-            with col_cancel:
-                if st.button("❌ Huy", key=f"btn_cancel_edit_{edit_uid}", width='stretch'):
-                    st.session_state[tmp_key] = {}
-                    st.session_state["salary_edit_uid"] = None
-                    st.rerun()
 
     st.markdown('</div>', unsafe_allow_html=True)

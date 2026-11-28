@@ -208,7 +208,7 @@ CHỈ trả về JSON, không giải thích thêm, không bao bọc trong ```jso
 # ============================================================
 STATISTICS_SKILL_CODE = '''
 def execute(args, ctx):
-    """Thong ke bai bao khoa hoc tu chi muc tap the publications_index (Skill Admin)."""
+    """Thong ke bai bao khoa hoc tu truong bai_bao_cong_bo cua tung ho so (Skill Admin)."""
     from storage import load_json_from_db
     import pandas as pd
     import io
@@ -219,54 +219,131 @@ def execute(args, ctx):
     person = str(args.get("person", "")).strip().lower()
     export_excel = bool(args.get("export_excel", False))
 
-    index = load_json_from_db("publications_index") or {}
+    allowed_profiles = ctx.get("allowed_profiles", [])
+    load_profile = ctx["load_profile"]
+    get_name = ctx["get_name"]
+
+    def _norm(s):
+        if not s:
+            return ""
+        import unicodedata
+        s = unicodedata.normalize("NFD", str(s))
+        s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
+        return s.lower().replace(" ", "").replace("_", "").replace("-", "")
+
+    def _parse_phan_loai(phan_loai):
+        pl = str(phan_loai or "").strip()
+        pl_upper = pl.upper()
+        index_type = ""
+        quartile = ""
+        if "SCOPUS" in pl_upper:
+            index_type = "Scopus"
+        elif "ISI" in pl_upper or "SCI" in pl_upper:
+            index_type = "ISI/SCI-EE"
+        elif "HOI NGHI" in pl_upper or "HỘI NGHỊ" in pl_upper:
+            index_type = "Hội nghị"
+        elif "TAP CHI TRONG NUOC" in pl_upper or "TẠP CHÍ TRONG NƯỚC" in pl_upper:
+            index_type = "Tạp chí trong nước"
+        else:
+            index_type = "Khác"
+        for q in ("Q1", "Q2", "Q3", "Q4"):
+            if q in pl_upper:
+                quartile = q
+                break
+        return index_type, quartile
 
     rows = []
-    for pub_key, pub in index.items():
-        if not isinstance(pub, dict):
+    for key in allowed_profiles:
+        prof = load_profile(key) or {}
+        name = get_name(key)
+
+        if person and person not in str(name).lower():
+            continue
+        don_vi = _norm(prof.get("don_vi_cong_tac", "") or prof.get("don_vi", ""))
+        don_vi_con = _norm(prof.get("don_vi_cong_tac_con", ""))
+        if unit and _norm(unit) not in don_vi and _norm(unit) not in don_vi_con:
             continue
 
-        year_str = str(pub.get("year", "")).strip()
-        try:
-            y = int(year_str) if year_str else 0
-        except Exception:
-            y = 0
-        if from_year and y < int(from_year):
-            continue
-        if to_year and y > int(to_year):
-            continue
+        # Ưu tiên đọc từ bai_bao_cong_bo (đã chuẩn hóa từ file CV)
+        pubs_raw = prof.get("bai_bao_cong_bo", [])
+        if not isinstance(pubs_raw, list):
+            pubs_raw = []
+        use_new = bool(pubs_raw)
+        if not use_new:
+            pubs_raw = prof.get("bai_bao_chuan_scopus", [])
+            if not isinstance(pubs_raw, list):
+                pubs_raw = prof.get("cong_bo", [])
+            if not isinstance(pubs_raw, list):
+                pubs_raw = prof.get("bai_bao", [])
+            if not isinstance(pubs_raw, list):
+                pubs_raw = []
 
-        units = pub.get("units", [])
-        if not isinstance(units, list):
-            units = []
-        units_lower = [str(u).lower() for u in units]
-        if unit and not any(unit in u for u in units_lower):
-            continue
+        for p in pubs_raw:
+            if not isinstance(p, dict):
+                continue
+            if use_new:
+                phan_loai = str(p.get("phan_loai", "")).strip()
+                index_type, quartile = _parse_phan_loai(phan_loai)
+                if p.get("tac_gia_dau"):
+                    author_role = "Tác giả đầu"
+                    authors = "Tác giả đầu"
+                elif p.get("tac_gia_lien_he"):
+                    author_role = "Tác giả liên hệ"
+                    authors = "Tác giả liên hệ"
+                elif p.get("dong_tac_gia"):
+                    author_role = "Đồng tác giả"
+                    authors = "Đồng tác giả"
+                else:
+                    author_role = str(p.get("vai_tro", "")).strip()
+                    authors = author_role
+                try:
+                    y = int(p.get("nam_cong_bo") or 0)
+                except Exception:
+                    y = 0
+                pub = {
+                    "title": str(p.get("ten_cong_trinh", "")).strip(),
+                    "authors": authors,
+                    "author_role": author_role,
+                    "source_title": str(p.get("noi_cong_bo", "")).strip(),
+                    "year": str(y),
+                    "doi": str(p.get("doi", "")).strip(),
+                    "issn": str(p.get("issn", "")).strip(),
+                    "index_type": index_type,
+                    "quartile": quartile,
+                    "document_type": str(p.get("loai_cong_trinh", "")).strip(),
+                    "units": [prof.get("don_vi_cong_tac", "") or prof.get("don_vi", "")],
+                    "internal_authors": [key],
+                }
+            else:
+                pub = p
+                try:
+                    y = int(pub.get("year") or 0)
+                except Exception:
+                    y = 0
 
-        internal_authors = pub.get("internal_authors", [])
-        if not isinstance(internal_authors, list):
-            internal_authors = []
-        if person:
-            authors_str = str(pub.get("authors", "")).lower()
-            found_person = person in authors_str or any(person in str(a).lower() for a in internal_authors)
-            if not found_person:
+            if from_year and y < int(from_year):
+                continue
+            if to_year and y > int(to_year):
                 continue
 
-        rows.append({
-            "Ma bai bao": pub_key,
-            "Ten bai bao": pub.get("title", ""),
-            "Tac gia": pub.get("authors", ""),
-            "Tap chi": pub.get("source_title", ""),
-            "Nam": y,
-            "DOI": pub.get("doi", ""),
-            "ISSN": pub.get("issn", ""),
-            "Loai chi so": pub.get("index_type", ""),
-            "Quy": pub.get("quartile", ""),
-            "Loai bai bao": pub.get("document_type", ""),
-            "Don vi": "; ".join(units),
-            "So tac gia noi bo": len(internal_authors),
-            "Danh sach tac gia noi bo": "; ".join(internal_authors),
-        })
+            rows.append({
+                "Ma bai bao": pub.get("title", ""),
+                "Ten bai bao": pub.get("title", ""),
+                "Ma HS": key,
+                "Ho ten": name,
+                "Tac gia": pub.get("authors", ""),
+                "Vai tro": pub.get("author_role", ""),
+                "Tap chi": pub.get("source_title", ""),
+                "Nam": y,
+                "DOI": pub.get("doi", ""),
+                "ISSN": pub.get("issn", ""),
+                "Loai chi so": pub.get("index_type", ""),
+                "Quy": pub.get("quartile", ""),
+                "Loai bai bao": pub.get("document_type", ""),
+                "Don vi": "; ".join(pub.get("units", []) or []),
+                "So tac gia noi bo": len(pub.get("internal_authors", []) or []),
+                "Danh sach tac gia noi bo": "; ".join(pub.get("internal_authors", []) or []),
+            })
 
     rows.sort(key=lambda r: r["Nam"], reverse=True)
 
